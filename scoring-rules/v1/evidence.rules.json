@@ -1,0 +1,5 @@
+{
+  "version": "v1",
+  "minimumSupportedConfidence": 0.7,
+  "partialMatchConfidence": 0.45
+}

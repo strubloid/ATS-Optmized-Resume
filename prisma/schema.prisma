@@ -1,0 +1,28 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AppState {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model ExportedFile {
+  id                String   @id
+  userId            String
+  generatedResumeId String
+  format            String
+  filePath          String
+  contentType       String
+  createdAt         DateTime @default(now())
+
+  @@index([userId])
+  @@index([generatedResumeId])
+}

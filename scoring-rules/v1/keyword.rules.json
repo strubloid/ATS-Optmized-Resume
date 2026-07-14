@@ -1,0 +1,13 @@
+{
+  "version": "v1",
+  "weights": {
+    "keywordMatch": 25,
+    "roleAlignment": 10,
+    "experienceRelevance": 20,
+    "skillEvidence": 15,
+    "formattingSafety": 10,
+    "measurableAchievements": 10,
+    "storytelling": 5,
+    "missingRequirementPenalty": 5
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "version": "v1",
+  "maxLineLength": 180,
+  "disallowedPatterns": ["<script", "javascript:", "<table", "![]("]
+}

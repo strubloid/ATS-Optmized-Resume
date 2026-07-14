@@ -1,0 +1,1 @@
+We need a Senior Full Stack Engineer to build React and TypeScript interfaces, Node.js REST APIs, PostgreSQL data models, Docker deployment workflows, AWS operations, Playwright tests, and production support tooling. Kubernetes is required. Security testing is a plus.
