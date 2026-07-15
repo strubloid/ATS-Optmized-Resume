@@ -3,7 +3,7 @@ import { IMPROVEMENT_CATEGORIES } from "../../../../../packages/comments-core/sr
 import { Button } from "../../shared/ui/Button";
 import { useState } from "react";
 
-type AiImprovement = { suggestedReplacement: string; rationale: string };
+type AiImprovement = { suggestedReplacement: string; rationale: string; targetBulletId?: string };
 
 export function ImprovementPanel({
   comments,
@@ -44,7 +44,7 @@ export function ImprovementPanel({
            <div className="button-row suggestion-actions">
              <Button variant="primary" onClick={() => onAccept(selectedComment)} disabled={selectedComment.riskLevel === "blocked" || selectedComment.status === "accepted"} data-testid="accept-suggestion">Apply suggestion</Button>
              <Button variant="secondary" onClick={() => onReject(selectedComment)} disabled={selectedComment.riskLevel === "blocked" || selectedComment.status === "rejected"} data-testid="reject-suggestion">Reject suggestion</Button>
-                {selectedComment.status === "open" && !selectedComment.suggestedReplacement ? <Button variant="quiet" onClick={async () => { setAiLoading(true); setAiImprovements([]); try { setAiImprovements(await onAskAi(selectedComment)); } catch (error) { setAiImprovements([{ suggestedReplacement: "", rationale: error instanceof Error ? error.message : "AI improvement failed." }]); } finally { setAiLoading(false); } }}>{aiLoading ? "Creating options..." : "Ask AI to improve"}</Button> : null}
+                 {selectedComment.status === "open" && !selectedComment.suggestedReplacement ? <Button variant="quiet" onClick={async () => { setAiLoading(true); setAiImprovements([]); try { setAiImprovements(await onAskAi(selectedComment)); } catch (error) { setAiImprovements([{ suggestedReplacement: "", rationale: error instanceof Error ? error.message : "AI improvement failed." }]); } finally { setAiLoading(false); } }}>{aiLoading ? "Creating options..." : "Ask AI to improve"}</Button> : null}
            </div>
            <dl>
              <dt>Why it matters</dt>
@@ -61,8 +61,9 @@ export function ImprovementPanel({
              <dd>{selectedComment.estimatedScoreImpact ?? 0} points</dd>
              <dt>Risk level</dt>
              <dd>{selectedComment.riskLevel}</dd>
-            </dl>
-              {aiImprovements.length ? <div className="ai-result" aria-live="polite"><strong>Choose one rewrite to apply</strong><div className="ai-options">{aiImprovements.map((improvement, index) => improvement.suggestedReplacement ? <button className="ai-option" key={improvement.suggestedReplacement} onClick={() => void onApplyAiOption(selectedComment, improvement)}><span>Option {index + 1}</span><b>{improvement.suggestedReplacement}</b><small>{improvement.rationale}</small></button> : <p className="form-error" key="ai-error">{improvement.rationale}</p>)}</div></div> : null}
+             </dl>
+               {selectedComment.status === "open" && selectedComment.riskLevel === "blocked" ? <p className="ai-unavailable">We will only suggest a rewrite when related evidence is found in your CV. Direct experience is never invented.</p> : null}
+               {aiImprovements.length ? <div className="ai-result" aria-live="polite"><strong>Choose one rewrite to apply</strong><div className="ai-options">{aiImprovements.map((improvement, index) => improvement.suggestedReplacement ? <button className="ai-option" key={improvement.suggestedReplacement} onClick={() => void onApplyAiOption(selectedComment, improvement)}><span>Option {index + 1}</span><b>{improvement.suggestedReplacement}</b><small>{improvement.rationale}</small></button> : <p className="form-error" key="ai-error">{improvement.rationale}</p>)}</div></div> : null}
          </section>
        ) : null}
         <button className="completed-toggle" onClick={() => setShowCompleted((value) => !value)}>{showCompleted ? "Hide completed categories" : "Show completed categories"}</button>

@@ -181,6 +181,28 @@ describe("API security and abuse coverage", () => {
     expect(applied.body.generatedResume.markdown).toContain("Node.js systems");
   });
 
+  it("uses a selected existing bullet as reviewable evidence for an unsupported requirement", async () => {
+    const store = createStore();
+    const app = createApiApp(store);
+    const token = await register(app, "transferable-evidence@example.com");
+    const generated = await createGenerated(app, token);
+    const blocked = generated.comments.find((comment: { riskLevel: string }) => comment.riskLevel === "blocked");
+    const section = generated.generatedResume.sections.find((item: { id: string }) => item.id === blocked.resumeSectionId);
+    const bullet = section.bullets[0];
+    expect(bullet).toBeDefined();
+
+    const saved = await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${blocked.id}/ai-suggestion`).set("Authorization", `Bearer ${token}`).send({
+      targetBulletId: bullet.id,
+      suggestedReplacement: "Built React and Node.js systems for 10 internal teams, demonstrating transferable backend delivery experience."
+    }).expect(200);
+    const updated = saved.body.comments.find((comment: { id: string }) => comment.id === blocked.id);
+    expect(updated.riskLevel).toBe("medium");
+    expect(updated.targetBulletId).toBe(bullet.id);
+
+    const applied = await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${blocked.id}/accept`).set("Authorization", `Bearer ${token}`).send().expect(200);
+    expect(applied.body.generatedResume.markdown).toContain("transferable backend delivery experience");
+  });
+
   it("supports owned job application editing and confirmed deletion boundaries", async () => {
     const store = createStore();
     const app = createApiApp(store);

@@ -7,7 +7,7 @@ import type { AppStore } from "../../shared/store";
 import { recalculateGeneratedResumeScore, requireGeneratedResume } from "../optimization/optimization.service";
 
 const rejectSchema = z.object({ reason: z.string().max(500).optional() }).strict();
-const aiSuggestionSchema = z.object({ suggestedReplacement: z.string().min(1).max(5000) }).strict();
+const aiSuggestionSchema = z.object({ suggestedReplacement: z.string().min(1).max(5000), targetBulletId: z.string().min(1).max(200).optional() }).strict();
 
 export function createCommentRouter(store: AppStore): Router {
   const router = Router();
@@ -54,15 +54,27 @@ export function createCommentRouter(store: AppStore): Router {
     const comment = bundle.comments.find((item) => item.id === (request.params.commentId ?? ""));
     if (!comment) throw new ApiError(404, "Comment not found");
     if (comment.status !== "open") throw new ApiError(409, "Only open suggestions can be improved");
-    if (comment.riskLevel === "blocked") throw new ApiError(409, "Add evidence to the master resume before improving an unsupported requirement");
     const targetSection = bundle.generatedResume.sections.find((section) => section.id === comment.resumeSectionId);
     if (!targetSection) throw new ApiError(409, "The target resume section no longer exists");
-    const targetText = comment.targetBulletId
+    const targetBulletId = body.targetBulletId ?? comment.targetBulletId;
+    const targetBullet = targetBulletId ? targetSection.bullets.find((bullet) => bullet.id === targetBulletId) : undefined;
+    if (body.targetBulletId && !targetBullet) throw new ApiError(409, "The selected resume bullet no longer exists");
+    if (comment.riskLevel === "blocked" && !targetBullet) throw new ApiError(409, "Select a resume bullet with relevant evidence before improving an unsupported requirement");
+    const targetText = targetBullet?.text ?? (comment.targetBulletId
       ? targetSection.bullets.find((bullet) => bullet.id === comment.targetBulletId)?.text
-      : targetSection.content;
+      : targetSection.content);
     if (!targetText) throw new ApiError(409, "The target resume text no longer exists");
     const updatedComments = bundle.comments.map((item) => item.id === comment.id
-      ? { ...item, currentText: targetText, suggestedReplacement: body.suggestedReplacement }
+      ? {
+        ...item,
+        currentText: targetText,
+        targetBulletId: targetBullet?.id ?? item.targetBulletId,
+        severity: item.riskLevel === "blocked" ? "suggestion" : item.severity,
+        riskLevel: item.riskLevel === "blocked" ? "medium" : item.riskLevel,
+        message: item.riskLevel === "blocked" ? `This rewrite is based on verified resume evidence and must not claim direct ${item.jobRequirement} experience unless it is stated in the source CV.` : item.message,
+        evidence: targetBullet?.text ?? item.evidence,
+        suggestedReplacement: body.suggestedReplacement
+      }
       : item);
     store.comments.set(bundle.generatedResume.id, updatedComments);
     response.json({ generatedResume: bundle.generatedResume, scoreReport: bundle.scoreReport, comments: updatedComments });

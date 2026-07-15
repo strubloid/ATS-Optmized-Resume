@@ -91,26 +91,25 @@ export function AnnotatedResumeReviewPage({ api, bundle, sourceMarkdown, onBundl
               onReject={reject}
               onAskAi={async (comment) => {
                   const targetSection = bundle.generatedResume.sections.find((section) => section.id === comment.resumeSectionId);
-                  const currentText = comment.targetBulletId
+                  const targetBullet = comment.targetBulletId
                     ? targetSection?.bullets.find((bullet) => bullet.id === comment.targetBulletId)?.text
-                    : targetSection?.content;
+                    : targetSection?.bullets.reduce((best, bullet) => !best || bullet.text.length > best.text.length ? bullet : best, undefined as typeof targetSection.bullets[number] | undefined);
+                  const currentText = typeof targetBullet === "string" ? targetBullet : targetBullet?.text ?? targetSection?.content;
                   if (!currentText) throw new Error("This suggestion has no text for AI to improve");
-                  const evidence = comment.evidence && comment.evidence !== "Evidence unavailable."
-                    ? comment.evidence.slice(0, 900)
-                    : currentText.slice(0, 900);
+                  const evidence = currentText.slice(0, 900);
                   const result = await api.analyzeAiEvidence({
                     requirement: comment.jobRequirement ?? comment.title,
                     currentText: currentText.slice(0, 1600),
                     context: comment.message.slice(0, 500),
                     evidence: [{ id: comment.id, text: evidence }]
                   });
-                  return result.improvement.improvements;
+                  return result.improvement.improvements.map((improvement) => ({ ...improvement, targetBulletId: typeof targetBullet === "string" ? comment.targetBulletId : targetBullet?.id }));
                 }}
               onApplyAiOption={async (comment, improvement) => {
                 setError("");
                 setActionMessage("");
                 try {
-                  await api.saveAiSuggestion(bundle.generatedResume.id, comment.id, improvement.suggestedReplacement);
+                  await api.saveAiSuggestion(bundle.generatedResume.id, comment.id, improvement.suggestedReplacement, improvement.targetBulletId);
                   const response = await api.acceptComment(bundle.generatedResume.id, comment.id);
                   onBundleChange({ ...bundle, generatedResume: response.generatedResume, scoreReport: response.scoreReport, comments: response.comments });
                   setActionMessage("AI rewrite applied to the generated CV.");

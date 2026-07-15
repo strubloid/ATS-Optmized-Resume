@@ -456,6 +456,7 @@ p {
 .ai-option span { color: var(--primary-strong); font-size: 0.8rem; font-weight: 760; }
 .ai-option b { font-weight: 680; line-height: 1.45; }
 .ai-option small { color: var(--muted); line-height: 1.4; }
+.ai-unavailable { border: 1px solid oklch(0.8 0.1 65); border-radius: 10px; background: oklch(0.97 0.03 65); color: oklch(0.35 0.09 65); margin: 0; padding: 0.75rem; }
 
 .severity-dot {
   width: 0.65rem;

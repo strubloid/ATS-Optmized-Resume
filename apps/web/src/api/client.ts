@@ -113,10 +113,10 @@ export class ApiClient {
     });
   }
 
-  saveAiSuggestion(generatedResumeId: string, commentId: string, suggestedReplacement: string) {
+  saveAiSuggestion(generatedResumeId: string, commentId: string, suggestedReplacement: string, targetBulletId?: string) {
     return this.request<Pick<GeneratedBundle, "generatedResume" | "scoreReport" | "comments">>(`/api/generated/${generatedResumeId}/comments/${commentId}/ai-suggestion`, {
       method: "POST",
-      body: JSON.stringify({ suggestedReplacement })
+      body: JSON.stringify({ suggestedReplacement, targetBulletId })
     });
   }
 
