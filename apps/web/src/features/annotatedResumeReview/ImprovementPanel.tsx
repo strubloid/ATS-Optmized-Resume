@@ -1,6 +1,9 @@
 import type { ResumeComment, ScoreReport } from "../../../../../packages/shared/src";
 import { IMPROVEMENT_CATEGORIES } from "../../../../../packages/comments-core/src/commentCategories";
 import { Button } from "../../shared/ui/Button";
+import { useState } from "react";
+
+type AiImprovement = { suggestedReplacement: string; rationale: string };
 
 export function ImprovementPanel({
   comments,
@@ -8,7 +11,9 @@ export function ImprovementPanel({
   selectedComment,
   onSelectCategory,
   onAccept,
-  onReject
+  onReject,
+  onAskAi,
+  onApplyAiOption
 }: {
   comments: ResumeComment[];
   scoreReport: ScoreReport;
@@ -16,7 +21,12 @@ export function ImprovementPanel({
   onSelectCategory: (category: string) => void;
   onAccept: (comment: ResumeComment) => void;
   onReject: (comment: ResumeComment) => void;
+  onAskAi: (comment: ResumeComment) => Promise<AiImprovement[]>;
+  onApplyAiOption: (comment: ResumeComment, improvement: AiImprovement) => Promise<void>;
 }) {
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiImprovements, setAiImprovements] = useState<AiImprovement[]>([]);
   return (
     <aside className="improvement-panel" data-testid="improvement-panel" aria-label="Resume assistant">
       <div className="score-card">
@@ -34,7 +44,7 @@ export function ImprovementPanel({
            <div className="button-row suggestion-actions">
              <Button variant="primary" onClick={() => onAccept(selectedComment)} disabled={selectedComment.riskLevel === "blocked" || selectedComment.status === "accepted"} data-testid="accept-suggestion">Apply suggestion</Button>
              <Button variant="secondary" onClick={() => onReject(selectedComment)} disabled={selectedComment.riskLevel === "blocked" || selectedComment.status === "rejected"} data-testid="reject-suggestion">Reject suggestion</Button>
-             <Button variant="quiet" onClick={() => navigator.clipboard?.writeText(selectedComment.suggestedReplacement ?? selectedComment.message)}>Copy</Button>
+                {selectedComment.status === "open" && !selectedComment.suggestedReplacement ? <Button variant="quiet" onClick={async () => { setAiLoading(true); setAiImprovements([]); try { setAiImprovements(await onAskAi(selectedComment)); } catch (error) { setAiImprovements([{ suggestedReplacement: "", rationale: error instanceof Error ? error.message : "AI improvement failed." }]); } finally { setAiLoading(false); } }}>{aiLoading ? "Creating options..." : "Ask AI to improve"}</Button> : null}
            </div>
            <dl>
              <dt>Why it matters</dt>
@@ -51,12 +61,15 @@ export function ImprovementPanel({
              <dd>{selectedComment.estimatedScoreImpact ?? 0} points</dd>
              <dt>Risk level</dt>
              <dd>{selectedComment.riskLevel}</dd>
-           </dl>
+            </dl>
+              {aiImprovements.length ? <div className="ai-result" aria-live="polite"><strong>Choose one rewrite to apply</strong><div className="ai-options">{aiImprovements.map((improvement, index) => improvement.suggestedReplacement ? <button className="ai-option" key={improvement.suggestedReplacement} onClick={() => void onApplyAiOption(selectedComment, improvement)}><span>Option {index + 1}</span><b>{improvement.suggestedReplacement}</b><small>{improvement.rationale}</small></button> : <p className="form-error" key="ai-error">{improvement.rationale}</p>)}</div></div> : null}
          </section>
        ) : null}
-       <div className="category-list">
-        {IMPROVEMENT_CATEGORIES.map((category) => {
-          const categoryComments = comments.filter((comment) => comment.category === category && comment.status === "open");
+        <button className="completed-toggle" onClick={() => setShowCompleted((value) => !value)}>{showCompleted ? "Hide completed categories" : "Show completed categories"}</button>
+        <div className="category-list">
+         {IMPROVEMENT_CATEGORIES.map((category) => {
+           const categoryComments = comments.filter((comment) => comment.category === category && comment.status === "open");
+           if (!categoryComments.length && !showCompleted) return null;
           return (
             <button key={category} className="category-card" onClick={() => onSelectCategory(category)} data-testid="improvement-category">
               <span>{category}</span>

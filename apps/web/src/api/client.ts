@@ -94,6 +94,10 @@ export class ApiClient {
     return this.request<{ configured: boolean; defaultModel: string; models: string[] }>("/api/settings/ai/refresh", { method: "POST" });
   }
 
+  analyzeAiEvidence(input: { requirement: string; currentText: string; context?: string; evidence: Array<{ id: string; text: string }> }) {
+    return this.request<{ improvement: { improvements: Array<{ suggestedReplacement: string; rationale: string }> } }>("/api/settings/ai/analyze", { method: "POST", body: JSON.stringify(input) });
+  }
+
   generate(jobId: string) {
     return this.request<GeneratedBundle>(`/api/jobs/${jobId}/generate`, { method: "POST" });
   }
@@ -107,6 +111,17 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify({ reason: "Not useful for this application" })
     });
+  }
+
+  saveAiSuggestion(generatedResumeId: string, commentId: string, suggestedReplacement: string) {
+    return this.request<Pick<GeneratedBundle, "generatedResume" | "scoreReport" | "comments">>(`/api/generated/${generatedResumeId}/comments/${commentId}/ai-suggestion`, {
+      method: "POST",
+      body: JSON.stringify({ suggestedReplacement })
+    });
+  }
+
+  getGeneratedResume(generatedResumeId: string) {
+    return this.request<GeneratedBundle>(`/api/generated/${generatedResumeId}`);
   }
 
   async exportDocument(generatedResumeId: string, format: "markdown" | "pdf" | "docx" | "annotated-pdf" | "score-report") {

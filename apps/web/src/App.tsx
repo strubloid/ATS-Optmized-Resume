@@ -21,6 +21,11 @@ export function App() {
   const [error, setError] = useState("");
   const api = new ApiClient(() => token);
 
+  function selectBundle(nextBundle: GeneratedBundle) {
+    localStorage.setItem("curriculum-active-generated-resume", nextBundle.generatedResume.id);
+    setBundle(nextBundle);
+  }
+
   useEffect(() => {
     const oauthToken = new URLSearchParams(window.location.search).get("token");
     if (oauthToken) {
@@ -33,6 +38,8 @@ export function App() {
   useEffect(() => {
     if (!token) return;
     api.getMasterResume().then((response) => setMasterResume(response.resume?.markdown ?? "")).catch(() => undefined);
+    const generatedResumeId = localStorage.getItem("curriculum-active-generated-resume");
+    if (generatedResumeId) api.getGeneratedResume(generatedResumeId).then(selectBundle).catch(() => localStorage.removeItem("curriculum-active-generated-resume"));
   }, [token]);
 
   function onAuth(auth: AuthResponse) {
@@ -43,6 +50,7 @@ export function App() {
 
   function logout() {
     localStorage.removeItem("curriculum-token");
+    localStorage.removeItem("curriculum-active-generated-resume");
     setToken(null);
     setUser(null);
   }
@@ -67,7 +75,7 @@ export function App() {
             ["dashboard", "Dashboard"],
             ["resume", "Master Resume"],
             ["jobs", "Job Applications"],
-            ["review", "Annotated CV Review"],
+            ["review", "Better CV"],
             ["score", "Score Review"],
             ["exports", "Export Center"],
             ["settings", "Settings"]
@@ -79,9 +87,9 @@ export function App() {
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           {page === "dashboard" ? <DashboardPage hasResume={Boolean(masterResume)} bundle={bundle} /> : null}
           {page === "resume" ? <MasterResumeEditor api={api} markdown={masterResume} onSaved={setMasterResume} /> : null}
-          {page === "jobs" ? <JobApplicationForm api={api} onGenerated={(generated) => { setError(""); setBundle(generated); setPage("review"); }} /> : null}
+          {page === "jobs" ? <JobApplicationForm api={api} onGenerated={(generated) => { setError(""); selectBundle(generated); setPage("review"); }} /> : null}
           {page === "review" ? (
-            bundle ? <AnnotatedResumeReviewPage api={api} bundle={bundle} sourceMarkdown={masterResume} onBundleChange={setBundle} /> : <Panel><h2>Annotated CV Review</h2><p>Generate a CV first.</p></Panel>
+            bundle ? <AnnotatedResumeReviewPage api={api} bundle={bundle} sourceMarkdown={masterResume} onBundleChange={selectBundle} /> : <Panel><h2>Better CV</h2><p>Create a Better CV from a job application first.</p></Panel>
           ) : null}
           {page === "score" ? <ScoreReviewPage scoreReport={bundle?.scoreReport} /> : null}
           {page === "exports" ? <Panel><h2>Export Center</h2><p>Use the export buttons in the generated CV review to create Markdown, clean PDF, DOCX, annotated PDF, and score report files.</p></Panel> : null}

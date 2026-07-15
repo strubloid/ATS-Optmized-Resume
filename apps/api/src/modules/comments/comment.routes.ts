@@ -7,6 +7,7 @@ import type { AppStore } from "../../shared/store";
 import { recalculateGeneratedResumeScore, requireGeneratedResume } from "../optimization/optimization.service";
 
 const rejectSchema = z.object({ reason: z.string().max(500).optional() }).strict();
+const aiSuggestionSchema = z.object({ suggestedReplacement: z.string().min(1).max(5000) }).strict();
 
 export function createCommentRouter(store: AppStore): Router {
   const router = Router();
@@ -44,6 +45,27 @@ export function createCommentRouter(store: AppStore): Router {
     store.scoreReports.set(updatedGeneratedResume.id, updatedScoreReport);
     store.comments.set(bundle.generatedResume.id, updatedComments);
     response.json({ generatedResume: updatedGeneratedResume, scoreReport: updatedScoreReport, comments: updatedComments });
+  }));
+
+  router.post("/generated/:generatedResumeId/comments/:commentId/ai-suggestion", asyncHandler(async (request, response) => {
+    const body = parseBody(aiSuggestionSchema, request.body);
+    const user = (request as AuthenticatedRequest).user;
+    const bundle = requireGeneratedResume(store, user.id, request.params.generatedResumeId ?? "");
+    const comment = bundle.comments.find((item) => item.id === (request.params.commentId ?? ""));
+    if (!comment) throw new ApiError(404, "Comment not found");
+    if (comment.status !== "open") throw new ApiError(409, "Only open suggestions can be improved");
+    if (comment.riskLevel === "blocked") throw new ApiError(409, "Add evidence to the master resume before improving an unsupported requirement");
+    const targetSection = bundle.generatedResume.sections.find((section) => section.id === comment.resumeSectionId);
+    if (!targetSection) throw new ApiError(409, "The target resume section no longer exists");
+    const targetText = comment.targetBulletId
+      ? targetSection.bullets.find((bullet) => bullet.id === comment.targetBulletId)?.text
+      : targetSection.content;
+    if (!targetText) throw new ApiError(409, "The target resume text no longer exists");
+    const updatedComments = bundle.comments.map((item) => item.id === comment.id
+      ? { ...item, currentText: targetText, suggestedReplacement: body.suggestedReplacement }
+      : item);
+    store.comments.set(bundle.generatedResume.id, updatedComments);
+    response.json({ generatedResume: bundle.generatedResume, scoreReport: bundle.scoreReport, comments: updatedComments });
   }));
 
   router.post("/generated/:generatedResumeId/comments/:commentId/resolve", asyncHandler(async (request, response) => {

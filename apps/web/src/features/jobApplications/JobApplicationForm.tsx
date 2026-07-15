@@ -19,10 +19,10 @@ export function JobApplicationForm({ api, onGenerated }: { api: ApiClient; onGen
   }, []);
 
   async function reopenJob(jobId: string) {
-    setStatus("Regenerating this saved application...");
+    setStatus("Opening your saved Better CV...");
     try {
       onGenerated(await api.generate(jobId));
-      setStatus("Saved application reopened.");
+      setStatus("Saved Better CV reopened.");
     } catch (caught) {
       setStatus(caught instanceof Error ? caught.message : "Could not reopen this application.");
     }
@@ -64,7 +64,7 @@ export function JobApplicationForm({ api, onGenerated }: { api: ApiClient; onGen
       const generated = await api.generate(job.job.id);
       setEditingJobId(null);
       onGenerated(generated);
-      setStatus("Generated CV review is ready.");
+      setStatus("Better CV is ready.");
     } catch (caught) {
       setStatus(caught instanceof Error ? caught.message : "Could not generate the optimized CV. Check that the API is running.");
     }
@@ -76,15 +76,15 @@ export function JobApplicationForm({ api, onGenerated }: { api: ApiClient; onGen
         <div className="saved-jobs-heading"><div><p className="product-label">Your workspace</p><h3>Saved applications</h3></div><span>{jobs.length} saved</span></div>
         <div className="saved-job-list">{jobs.map((job) => <article className="saved-job" key={job.id}>
           <div className="saved-job-copy"><strong>{job.roleTitle}</strong><span>{job.companyName}{job.location ? ` · ${job.location}` : ""}</span><small>{job.description.slice(0, 120)}{job.description.length > 120 ? "..." : ""}</small></div>
-          <div className="saved-job-actions"><Button variant="primary" onClick={() => reopenJob(job.id)}>Generate</Button><Button onClick={() => editJob(job)}>Edit</Button><Button variant="quiet" onClick={() => deleteJob(job)}>Delete</Button></div>
+           <div className="saved-job-actions"><Button variant="primary" onClick={() => reopenJob(job.id)}>Make it better</Button><Button onClick={() => editJob(job)}>Edit</Button><Button variant="quiet" onClick={() => deleteJob(job)}>Delete</Button></div>
         </article>)}</div>
       </section> : null}
       <div className="section-heading">
         <div>
          <h2>{editingJobId ? "Edit job application" : "New job application"}</h2>
-          <p>{editingJobId ? "Update the application, then generate a fresh review." : "Save a job description once, then return to edit or regenerate it later."}</p>
+          <p>{editingJobId ? "Update the application, then open its Better CV." : "Save a job description once, then return to continue improving its CV later."}</p>
         </div>
-         <Button variant="primary" onClick={createAndGenerate} data-testid="generate-cv">{editingJobId ? "Save and generate" : "Save and generate"}</Button>
+          <Button variant="primary" onClick={createAndGenerate} data-testid="generate-cv">{editingJobId ? "Save and open Better CV" : "Create Better CV"}</Button>
       </div>
       <div className="form-grid">
         <TextField label="Company" value={companyName} onChange={(event) => setCompanyName(event.target.value)} />

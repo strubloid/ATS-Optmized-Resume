@@ -10,7 +10,7 @@ export function ResumeDocumentPreview({ generatedResume, selectedComment }: { ge
             key={section.id}
             id={section.id}
             data-section-id={section.id}
-            className={`resume-section ${highlighted ? "is-highlighted" : ""}`}
+            className={`resume-section ${highlighted ? "is-highlighted" : ""} ${highlighted && selectedComment.status === "accepted" ? "is-applied" : ""}`}
             data-testid={highlighted ? "highlighted-section" : undefined}
           >
             <div className="section-meta">

@@ -5,7 +5,14 @@ import { requireAuth, type AuthenticatedRequest } from "../../shared/authMiddlew
 import type { AppStore } from "../../shared/store";
 
 const settingsSchema = z.object({ apiKey: z.string().max(500).optional(), defaultModel: z.string().max(200).optional() }).strict();
-const analysisSchema = z.object({ requirement: z.string().min(1).max(500), context: z.string().max(5000).optional(), evidence: z.array(z.object({ id: z.string(), text: z.string().max(5000) })).max(20) }).strict();
+const analysisSchema = z.object({ requirement: z.string().min(1).max(500), currentText: z.string().min(1).max(5000), context: z.string().max(5000).optional(), evidence: z.array(z.object({ id: z.string(), text: z.string().max(5000) })).min(1).max(20) }).strict();
+const improvementOptionSchema = z.object({
+  suggestedReplacement: z.string().min(1).max(5000),
+  rationale: z.string().min(1).max(1000)
+}).strict();
+const improvementResponseSchema = z.object({
+  improvements: z.array(improvementOptionSchema).length(3)
+}).strict();
 const modelUrls = ["https://opencode.ai/zen/v1/models", "https://opencode.ai/zen/go/v1/models"];
 
 async function discoverModels(apiKey: string): Promise<string[]> {
@@ -51,11 +58,20 @@ export function createSettingsRouter(store: AppStore): Router {
     const settings = store.aiSettings.get(userId);
     if (!settings?.apiKey || !settings.defaultModel) { response.status(400).json({ error: "Configure an OpenCode key and default model first" }); return; }
     const baseUrl = settings.defaultModel.startsWith("opencode-go/") ? "https://opencode.ai/zen/go/v1" : "https://opencode.ai/zen/v1";
-    const completion = await fetch(`${baseUrl}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${settings.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: settings.defaultModel, temperature: 0, messages: [{ role: "system", content: "You are an evidence analyst. Return JSON only. Never claim a technology was used unless the evidence says so. Related experience must remain explicitly transferable." }, { role: "user", content: JSON.stringify({ task: "analyze_transferable_evidence", requirement: input.requirement, context: input.context ?? "", resumeEvidence: input.evidence }) }] }) });
+    const completion = await fetch(`${baseUrl}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${settings.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({
+      model: settings.defaultModel,
+      temperature: 0,
+       max_tokens: 900,
+      response_format: { type: "json_object" },
+      messages: [
+         { role: "system", content: "Return JSON only: {\"improvements\":[{\"suggestedReplacement\": string, \"rationale\": string},{\"suggestedReplacement\": string, \"rationale\": string},{\"suggestedReplacement\": string, \"rationale\": string}]}. Provide exactly three distinct ways to rewrite only currentText. Use only resumeEvidence. Do not return analysis, evidence lists, headings, or markdown. Keep each replacement concise and truthful; never add unverified skills, outcomes, employers, dates, or responsibilities." },
+        { role: "user", content: JSON.stringify({ requirement: input.requirement, currentText: input.currentText, context: input.context ?? "", resumeEvidence: input.evidence }) }
+      ]
+    }) });
     if (!completion.ok) { response.status(502).json({ error: "OpenCode model request failed" }); return; }
     const payload = await completion.json() as { choices?: Array<{ message?: { content?: string } }> };
     const content = payload.choices?.[0]?.message?.content ?? "";
-    try { response.json({ analysis: JSON.parse(content) }); } catch { response.status(502).json({ error: "OpenCode returned an invalid structured response" }); }
+    try { response.json({ improvement: improvementResponseSchema.parse(JSON.parse(content)) }); } catch { response.status(502).json({ error: "OpenCode did not return a usable resume improvement" }); }
   }));
   return router;
 }

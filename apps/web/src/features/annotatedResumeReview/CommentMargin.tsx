@@ -8,7 +8,7 @@ export function CommentMargin({ comments, selectedCommentId, onSelect }: { comme
       {openComments.map((comment) => (
         <button
           key={comment.id}
-          className={`margin-note ${selectedCommentId === comment.id ? "is-selected" : ""}`}
+          className={`margin-note ${selectedCommentId === comment.id ? "is-selected" : ""} ${comment.status === "accepted" ? "is-applied" : comment.status === "rejected" ? "is-rejected" : ""}`}
           onClick={() => onSelect(comment)}
           data-testid="margin-comment"
         >

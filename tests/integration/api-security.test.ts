@@ -136,11 +136,49 @@ describe("API security and abuse coverage", () => {
 
     const applied = await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${suggestion.id}/accept`).set("Authorization", `Bearer ${token}`).send().expect(200);
     expect(applied.body.comments.find((comment: { id: string }) => comment.id === suggestion.id).status).toBe("accepted");
+    const reloaded = await request(app).get(`/api/generated/${generated.generatedResume.id}`).set("Authorization", `Bearer ${token}`).expect(200);
+    expect(reloaded.body.comments.find((comment: { id: string }) => comment.id === suggestion.id).status).toBe("accepted");
+    expect(reloaded.body.generatedResume.markdown).toBe(applied.body.generatedResume.markdown);
     await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${suggestion.id}/accept`).set("Authorization", `Bearer ${token}`).send().expect(409);
 
     const rejected = await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${suggestion.id}/reject`).set("Authorization", `Bearer ${token}`).send().expect(200);
     expect(rejected.body.comments.find((comment: { id: string }) => comment.id === suggestion.id).status).toBe("rejected");
     await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${suggestion.id}/reject`).set("Authorization", `Bearer ${token}`).send().expect(409);
+  });
+
+  it("reopens the same improved CV for a saved job application", async () => {
+    const store = createStore();
+    const app = createApiApp(store);
+    const token = await register(app, "persistent-cv@example.com");
+    const generated = await createGenerated(app, token);
+    const suggestion = generated.comments.find((comment: { riskLevel: string; suggestedReplacement?: string }) => comment.riskLevel === "low" && comment.suggestedReplacement);
+    expect(suggestion).toBeDefined();
+
+    const applied = await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${suggestion.id}/accept`).set("Authorization", `Bearer ${token}`).send().expect(200);
+    const reopened = await request(app).post(`/api/jobs/${generated.generatedResume.jobApplicationId}/generate`).set("Authorization", `Bearer ${token}`).send().expect(201);
+
+    expect(reopened.body.generatedResume.id).toBe(generated.generatedResume.id);
+    expect(reopened.body.generatedResume.markdown).toBe(applied.body.generatedResume.markdown);
+    expect(reopened.body.comments.find((comment: { id: string }) => comment.id === suggestion.id).status).toBe("accepted");
+  });
+
+  it("retains an AI-created replacement when the annotated review is reopened", async () => {
+    const store = createStore();
+    const app = createApiApp(store);
+    const token = await register(app, "ai-suggestion@example.com");
+    const generated = await createGenerated(app, token);
+    const comment = generated.comments.find((item: { riskLevel: string }) => item.riskLevel !== "blocked");
+    expect(comment).toBeDefined();
+
+    await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${comment.id}/ai-suggestion`).set("Authorization", `Bearer ${token}`).send({
+      suggestedReplacement: "Built React and Node.js systems for 10 internal teams, delivering REST API and full-stack engineering experience."
+    }).expect(200);
+
+    const reloaded = await request(app).get(`/api/generated/${generated.generatedResume.id}`).set("Authorization", `Bearer ${token}`).expect(200);
+    expect(reloaded.body.comments.find((item: { id: string }) => item.id === comment.id).suggestedReplacement).toContain("Node.js systems");
+
+    const applied = await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${comment.id}/accept`).set("Authorization", `Bearer ${token}`).send().expect(200);
+    expect(applied.body.generatedResume.markdown).toContain("Node.js systems");
   });
 
   it("supports owned job application editing and confirmed deletion boundaries", async () => {

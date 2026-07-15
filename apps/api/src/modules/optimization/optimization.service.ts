@@ -9,6 +9,15 @@ import { requireMasterResume } from "../resumes/resume.service";
 export function generateOptimizedResume(store: AppStore, userId: string, jobId: string): OptimizedResumeResult {
   const job = store.jobs.get(jobId);
   if (!job || job.userId !== userId) throw new ApiError(404, "Job application not found");
+
+  let existingGeneratedResume: OptimizedResumeResult["generatedResume"] | undefined;
+  for (const generatedResume of store.generatedResumes.values()) {
+    if (generatedResume.userId === userId && generatedResume.jobApplicationId === jobId && (!existingGeneratedResume || generatedResume.createdAt > existingGeneratedResume.createdAt)) {
+      existingGeneratedResume = generatedResume;
+    }
+  }
+  if (existingGeneratedResume) return requireGeneratedResume(store, userId, existingGeneratedResume.id);
+
   const resume = requireMasterResume(store, userId);
   const parsedResume = parseMarkdownResume(resume.markdown);
   const jobAnalysis = analyzeJobDescription({
