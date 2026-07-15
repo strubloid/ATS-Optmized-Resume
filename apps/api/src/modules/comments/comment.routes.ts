@@ -4,7 +4,7 @@ import { applyAcceptedSuggestion, revertAcceptedSuggestion, updateCommentStatus 
 import { ApiError, asyncHandler, parseBody } from "../../shared/http";
 import { requireAuth, type AuthenticatedRequest } from "../../shared/authMiddleware";
 import type { AppStore } from "../../shared/store";
-import { recalculateGeneratedResumeScore, requireGeneratedResume } from "../optimization/optimization.service";
+import { reevaluateGeneratedResume, requireGeneratedResume } from "../optimization/optimization.service";
 
 const rejectSchema = z.object({ reason: z.string().max(500).optional() }).strict();
 const aiSuggestionSchema = z.object({ suggestedReplacement: z.string().min(1).max(5000), targetBulletId: z.string().min(1).max(200).optional() }).strict();
@@ -22,13 +22,18 @@ export function createCommentRouter(store: AppStore): Router {
     if (comment.riskLevel === "blocked") {
       throw new ApiError(409, "Unsupported requirements cannot be accepted without adding evidence to the master resume");
     }
-    const updatedGeneratedResume = applyAcceptedSuggestion(bundle.generatedResume, comment);
-    const updatedComments = bundle.comments.map((item) => item.id === comment.id ? updateCommentStatus(item, "accepted") : item);
-    const updatedScoreReport = recalculateGeneratedResumeScore(store, user.id, updatedGeneratedResume);
-    store.generatedResumes.set(updatedGeneratedResume.id, updatedGeneratedResume);
-    store.scoreReports.set(updatedGeneratedResume.id, updatedScoreReport);
-    store.comments.set(updatedGeneratedResume.id, updatedComments);
-    response.json({ generatedResume: updatedGeneratedResume, scoreReport: updatedScoreReport, comments: updatedComments });
+    const evaluation = reevaluateGeneratedResume(store, user.id, applyAcceptedSuggestion(bundle.generatedResume, comment));
+    const matchedRequirements = new Set(evaluation.evidence.matchedRequirements.map((match) => match.requirement.text));
+    const updatedComments = bundle.comments.map((item) => {
+      if (item.id === comment.id) return updateCommentStatus(item, "accepted");
+      return item.jobRequirement && matchedRequirements.has(item.jobRequirement) && (item.status === "open" || item.status === "rejected")
+        ? updateCommentStatus(item, "resolved")
+        : item;
+    });
+    store.generatedResumes.set(evaluation.generatedResume.id, evaluation.generatedResume);
+    store.scoreReports.set(evaluation.generatedResume.id, evaluation.scoreReport);
+    store.comments.set(evaluation.generatedResume.id, updatedComments);
+    response.json({ generatedResume: evaluation.generatedResume, scoreReport: evaluation.scoreReport, comments: updatedComments });
   }));
 
   router.post("/generated/:generatedResumeId/comments/:commentId/reject", asyncHandler(async (request, response) => {
@@ -38,8 +43,9 @@ export function createCommentRouter(store: AppStore): Router {
     const comment = bundle.comments.find((item) => item.id === (request.params.commentId ?? ""));
     if (!comment) throw new ApiError(404, "Comment not found");
     if (comment.status !== "open" && comment.status !== "accepted") throw new ApiError(409, "Apply this suggestion before rejecting it again");
-    const updatedGeneratedResume = comment.status === "accepted" ? revertAcceptedSuggestion(bundle.generatedResume, comment) : bundle.generatedResume;
-    const updatedScoreReport = comment.status === "accepted" ? recalculateGeneratedResumeScore(store, user.id, updatedGeneratedResume) : bundle.scoreReport;
+    const evaluation = comment.status === "accepted" ? reevaluateGeneratedResume(store, user.id, revertAcceptedSuggestion(bundle.generatedResume, comment)) : undefined;
+    const updatedGeneratedResume = evaluation?.generatedResume ?? bundle.generatedResume;
+    const updatedScoreReport = evaluation?.scoreReport ?? bundle.scoreReport;
     const updatedComments = bundle.comments.map((item) => item.id === comment.id ? updateCommentStatus(item, "rejected") : item);
     store.generatedResumes.set(updatedGeneratedResume.id, updatedGeneratedResume);
     store.scoreReports.set(updatedGeneratedResume.id, updatedScoreReport);

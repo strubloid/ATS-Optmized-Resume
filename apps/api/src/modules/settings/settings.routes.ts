@@ -21,33 +21,32 @@ const improvementOptionSchema = z
         suggestedReplacement: z.string().min(1).max(5000),
         rationale: z.string().min(1).max(1000),
     })
-    .strict();
+        .strict();
+const improvementResponseSchema = z.object({
+    improvements: z.array(improvementOptionSchema).min(2).max(3),
+}).strict();
 const modelUrls = ["https://opencode.ai/zen/v1/models", "https://opencode.ai/zen/go/v1/models"];
+const resumeMetaLanguage = /\b(demonstrates?|transferable|relevant to|confirm|do not|should|resume|candidate|job title|experience relevant)\b/i;
 
-function parseImprovement(content: string) {
+function parseImprovements(content: string) {
     const json = content
         .trim()
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/, "");
-    return improvementOptionSchema.parse(JSON.parse(json));
-}
-
-function fallbackImprovements(requirement: string, currentText: string) {
-    const evidence = currentText.replace(/\s+/g, " ").trim().replace(/[.\s]+$/, "");
-    return [
-        {
-            suggestedReplacement: `${evidence}. This demonstrates transferable backend engineering experience relevant to ${requirement}; confirm direct ${requirement} experience before claiming it.`,
-            rationale: "Connects verified backend work to the role without claiming an unverified technology.",
-        },
-        {
-            suggestedReplacement: `${evidence}. Highlight the demonstrated tools, system ownership, and operational context as transferable experience, then add direct ${requirement} evidence when available.`,
-            rationale: "Makes the relevant evidence easy for a reviewer to find while staying factual.",
-        },
-        {
-            suggestedReplacement: `${evidence}. Emphasize the framework migration and production debugging as evidence of adapting to complex backend systems; do not list ${requirement} unless it is verified.`,
-            rationale: "Focuses on the demonstrated ability to learn and maintain backend platforms.",
-        },
-    ];
+    const improvement = improvementResponseSchema.parse(JSON.parse(json));
+    const rewrites = new Set<string>();
+    for (const option of improvement.improvements) {
+        const wordCount = option.suggestedReplacement.trim().split(/\s+/).length;
+        if (wordCount < 18 || wordCount > 35 || resumeMetaLanguage.test(option.suggestedReplacement)) {
+            throw new Error("OpenCode returned a rewrite outside the requested resume style");
+        }
+        if (option.rationale.trim().split(/\s+/).length > 12) {
+            throw new Error("OpenCode returned an overly long editor note");
+        }
+        rewrites.add(option.suggestedReplacement.trim().toLowerCase());
+    }
+    if (rewrites.size !== improvement.improvements.length) throw new Error("OpenCode returned duplicate rewrites");
+    return improvement;
 }
 
 async function discoverModels(apiKey: string): Promise<string[]> {
@@ -108,44 +107,34 @@ export function createSettingsRouter(store: AppStore): Router {
             const input = parseBody(analysisSchema, request.body);
             const settings = store.aiSettings.get(userId);
             if (!settings?.apiKey || !settings.defaultModel) {
-                response.json({ improvement: { improvements: fallbackImprovements(input.requirement, input.currentText) } });
+                response.status(400).json({ error: "Configure an OpenCode key and default model before asking AI to improve a rewrite" });
                 return;
             }
             const baseUrl = settings.defaultModel.startsWith("opencode-go/") ? "https://opencode.ai/zen/go/v1" : "https://opencode.ai/zen/v1";
-            const approaches = ["Lead with the most relevant responsibility.", "Lead with the clearest scope or contribution.", "Lead with the most relevant tools or methods."];
             try {
-                const improvements = await Promise.all(
-                    approaches.map(async (approach) => {
-                        const completion = await fetch(`${baseUrl}/chat/completions`, {
-                            method: "POST",
-                            signal: AbortSignal.timeout(1600),
-                            headers: { Authorization: `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                model: settings.defaultModel,
-                                temperature: 0.2,
-                                max_tokens: 550,
-                                response_format: { type: "json_object" },
-                                messages: [
-                                    {
-                                        role: "system",
-                                        content: `Return JSON only: {"suggestedReplacement": string, "rationale": string}. Rewrite only currentText. ${approach} Use only resumeEvidence. Do not return analysis, evidence lists, headings, or markdown. Keep the replacement concise and truthful; never add unverified skills, outcomes, employers, dates, or responsibilities.`,
-                                    },
-                                    { role: "user", content: JSON.stringify({ requirement: input.requirement, currentText: input.currentText, context: input.context ?? "", resumeEvidence: input.evidence }) },
-                                ],
-                            }),
-                        });
-                        if (!completion.ok) throw new Error(`OpenCode model request failed with HTTP ${completion.status}`);
-                        const payload = (await completion.json()) as { choices?: Array<{ message?: { content?: string } }> };
-                        try {
-                            return parseImprovement(payload.choices?.[0]?.message?.content ?? "");
-                        } catch {
-                            throw new Error("OpenCode returned an option that was not valid JSON with a suggestedReplacement and rationale");
-                        }
+                const completion = await fetch(`${baseUrl}/chat/completions`, {
+                    method: "POST",
+                    signal: AbortSignal.timeout(15000),
+                    headers: { Authorization: `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        model: settings.defaultModel,
+                        temperature: 0.2,
+                        max_tokens: 650,
+                        response_format: { type: "json_object" },
+                        messages: [
+                            {
+                                role: "system",
+                                content: `You are an exacting resume editor. Return JSON only: {"improvements":[{"suggestedReplacement":string,"rationale":string}]}. Create 2 or 3 distinct, paste-ready rewrites of currentText. Each rewrite is one natural resume bullet, 18 to 35 words, beginning with a strong verb and using plain professional language. Preserve only facts in currentText and resumeEvidence. Use the job requirement only to choose emphasis; never claim the requirement, job title, or a technology unless it appears in the evidence. A rewrite must contain only the candidate's experience, never advice, caveats, explanations, evidence labels, or instructions. Do not use these phrases: "demonstrates", "transferable", "relevant to", "confirm", "do not", "should", "resume", "candidate", "job title", or "experience relevant". rationale is a short editor note of at most 12 words that names the factual emphasis. Examples: currentText "Improved deployment workflows." -> suggestedReplacement "Improved deployment workflows by automating repeatable release steps for internal teams." currentText "Supported production incidents." -> suggestedReplacement "Resolved production incidents by diagnosing service failures and coordinating fixes with engineering teams."`,
+                            },
+                            { role: "user", content: JSON.stringify({ requirement: input.requirement, currentText: input.currentText, context: input.context ?? "", resumeEvidence: input.evidence }) },
+                        ],
                     }),
-                );
-                response.json({ improvement: { improvements } });
-            } catch (caught) {
-                response.json({ improvement: { improvements: fallbackImprovements(input.requirement, input.currentText) } });
+                });
+                if (!completion.ok) throw new Error(`OpenCode model request failed with HTTP ${completion.status}`);
+                const payload = (await completion.json()) as { choices?: Array<{ message?: { content?: string } }> };
+                response.json({ improvement: parseImprovements(payload.choices?.[0]?.message?.content ?? "") });
+            } catch {
+                response.status(502).json({ error: "AI could not create evidence-grounded rewrites. Try again in a moment." });
             }
         }),
     );

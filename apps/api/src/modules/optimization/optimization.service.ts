@@ -61,12 +61,20 @@ export function requireGeneratedResume(store: AppStore, userId: string, generate
   return { generatedResume, scoreReport, comments };
 }
 
-export function recalculateGeneratedResumeScore(store: AppStore, userId: string, generatedResume: OptimizedResumeResult["generatedResume"]): OptimizedResumeResult["scoreReport"] {
+export function reevaluateGeneratedResume(store: AppStore, userId: string, generatedResume: OptimizedResumeResult["generatedResume"]) {
   const job = store.jobs.get(generatedResume.jobApplicationId);
-  const resume = requireMasterResume(store, userId);
   if (!job) throw new ApiError(404, "Job application not found");
-  const parsedResume = parseMarkdownResume(resume.markdown);
+  const parsedResume = parseMarkdownResume(generatedResume.markdown);
   const jobAnalysis = analyzeJobDescription({ companyName: job.companyName, roleTitle: job.roleTitle, location: job.location, description: job.description, recruiterNotes: job.recruiterNotes });
   const evidence = matchEvidence(parsedResume, jobAnalysis);
-  return calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume });
+  const refreshedGeneratedResume = { ...generatedResume, unsupportedRequirements: evidence.unsupportedRequirements };
+  return {
+    generatedResume: refreshedGeneratedResume,
+    scoreReport: calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume: refreshedGeneratedResume }),
+    evidence
+  };
+}
+
+export function recalculateGeneratedResumeScore(store: AppStore, userId: string, generatedResume: OptimizedResumeResult["generatedResume"]): OptimizedResumeResult["scoreReport"] {
+  return reevaluateGeneratedResume(store, userId, generatedResume).scoreReport;
 }

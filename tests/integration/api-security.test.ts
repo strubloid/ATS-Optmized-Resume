@@ -203,6 +203,27 @@ describe("API security and abuse coverage", () => {
     expect(applied.body.generatedResume.markdown).toContain("transferable backend delivery experience");
   });
 
+  it("updates the compatibility score and clears an addressed missing requirement", async () => {
+    const store = createStore();
+    const app = createApiApp(store);
+    const token = await register(app, "reevaluate@example.com");
+    const generated = await createGenerated(app, token);
+    const blocked = generated.comments.find((comment: { jobRequirement?: string; riskLevel: string }) => comment.jobRequirement?.includes("Kubernetes") && comment.riskLevel === "blocked");
+    const targetSection = generated.generatedResume.sections.find((section: { id: string }) => section.id === blocked.resumeSectionId);
+    store.comments.set(generated.generatedResume.id, [...store.comments.get(generated.generatedResume.id) ?? [], { ...blocked, id: "duplicate-kubernetes-comment" }]);
+
+    await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${blocked.id}/ai-suggestion`).set("Authorization", `Bearer ${token}`).send({
+      targetBulletId: targetSection.bullets[0].id,
+      suggestedReplacement: "Built React, Node.js, and Kubernetes systems for 10 internal teams."
+    }).expect(200);
+    const applied = await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${blocked.id}/accept`).set("Authorization", `Bearer ${token}`).send().expect(200);
+
+    expect(applied.body.scoreReport.totalScore).toBeGreaterThan(generated.scoreReport.totalScore);
+    expect(applied.body.scoreReport.unsupportedRequirements).not.toContain("Kubernetes");
+    expect(applied.body.generatedResume.unsupportedRequirements.some((item: { requirement: { skill?: string } }) => item.requirement.skill === "Kubernetes")).toBe(false);
+    expect(applied.body.comments.find((comment: { id: string }) => comment.id === "duplicate-kubernetes-comment").status).toBe("resolved");
+  });
+
   it("supports owned job application editing and confirmed deletion boundaries", async () => {
     const store = createStore();
     const app = createApiApp(store);

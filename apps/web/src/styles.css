@@ -205,14 +205,18 @@ p {
   position: sticky;
   top: 0;
   z-index: 20;
+  display: grid;
+  border-bottom: 1px solid var(--border);
+  background: oklch(1 0 0 / 0.92);
+  backdrop-filter: blur(12px);
+}
+
+.topbar-main {
   display: flex;
   justify-content: space-between;
   gap: 1.25rem;
   align-items: center;
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--border);
-  background: oklch(1 0 0 / 0.92);
-  backdrop-filter: blur(12px);
+  padding: 0.8rem 1.5rem;
 }
 
 .topbar h1 {
@@ -226,25 +230,19 @@ p {
 }
 
 .app-body {
-  display: grid;
-  grid-template-columns: 245px minmax(0, 1fr);
-  gap: 1.25rem;
   padding: 1.25rem;
 }
 
-.side-nav {
-  position: sticky;
-  top: 5.25rem;
-  align-self: start;
-  display: grid;
-  gap: 0.35rem;
-  border: 1px solid var(--border);
-  border-radius: 24px;
+.primary-nav {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  padding: 0.5rem 1.5rem;
+  border-top: 1px solid var(--border);
   background: var(--surface);
-  padding: 0.75rem;
 }
 
-.side-nav button,
+.primary-nav button,
 .mode-tabs button,
 .category-card,
 .margin-note {
@@ -256,12 +254,14 @@ p {
   text-align: left;
 }
 
-.side-nav button {
-  padding: 0.75rem 0.85rem;
+.primary-nav button {
+  flex: none;
+  padding: 0.55rem 0.8rem;
+  white-space: nowrap;
 }
 
-.side-nav button:hover,
-.side-nav .is-active,
+.primary-nav button:hover,
+.primary-nav .is-active,
 .mode-tabs .is-active {
   border-color: var(--border);
   background: var(--bg);
@@ -404,7 +404,7 @@ p {
 
 .annotated-layout {
   display: grid;
-  grid-template-columns: minmax(170px, 0.55fr) minmax(420px, 1.5fr) minmax(280px, 0.85fr);
+  grid-template-columns: minmax(145px, 0.42fr) minmax(0, 1.5fr) minmax(270px, 320px);
   gap: 1rem;
   align-items: start;
 }
@@ -418,9 +418,12 @@ p {
 .improvement-panel {
   position: sticky;
   top: 5.25rem;
+  max-height: calc(100vh - 6.25rem);
+  overflow-y: auto;
   display: grid;
+  align-content: start;
   gap: 0.75rem;
-  border-radius: 24px;
+  border-radius: 14px;
   padding: 1rem;
 }
 
@@ -456,6 +459,7 @@ p {
 .ai-option span { color: var(--primary-strong); font-size: 0.8rem; font-weight: 760; }
 .ai-option b { font-weight: 680; line-height: 1.45; }
 .ai-option small { color: var(--muted); line-height: 1.4; }
+.details-toggle { border: 0; background: transparent; color: var(--primary-strong); cursor: pointer; font-weight: 700; padding: 0.2rem 0; text-align: left; }
 .ai-unavailable { border: 1px solid oklch(0.8 0.1 65); border-radius: 10px; background: oklch(0.97 0.03 65); color: oklch(0.35 0.09 65); margin: 0; padding: 0.75rem; }
 
 .severity-dot {
@@ -580,7 +584,7 @@ p {
   display: grid;
   gap: 0.75rem;
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: 14px;
   padding: 1rem;
 }
 
@@ -622,21 +626,19 @@ p {
   gap: 0.75rem;
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 960px) {
   .annotated-layout {
     grid-template-columns: 1fr;
   }
 
   .comment-margin,
-  .improvement-panel,
-  .side-nav {
+  .improvement-panel {
     position: static;
   }
 }
 
 @media (max-width: 820px) {
   .login-shell,
-  .app-body,
   .source-compare {
     grid-template-columns: 1fr;
   }
@@ -646,16 +648,13 @@ p {
     max-width: 14ch;
   }
 
-  .topbar,
+  .topbar-main,
   .section-heading,
   .review-topbar {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .side-nav {
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

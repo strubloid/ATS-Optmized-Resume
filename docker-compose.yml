@@ -41,6 +41,13 @@ services:
     volumes:
       - export-data:/data/exports
 
+  typecheck:
+    build:
+      context: .
+      target: tooling
+    command: npm run typecheck
+    profiles: ["tools"]
+
   adminer:
     image: adminer:4
     container_name: curriculum-adminer

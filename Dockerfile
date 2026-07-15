@@ -14,9 +14,12 @@ COPY packages/scoring-core/package.json packages/scoring-core/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN npm ci
 
-FROM deps AS build
+FROM deps AS tooling
 COPY . .
-RUN npm run db:generate && npm run build
+RUN npm run db:generate
+
+FROM tooling AS build
+RUN npm run build
 
 FROM base AS runtime
 ENV NODE_ENV=production

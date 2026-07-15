@@ -1,5 +1,13 @@
 import type { ResumeComment } from "../../../../../packages/shared/src";
 
+function commentTitle(comment: ResumeComment): string {
+  if (comment.riskLevel === "blocked") {
+    const missingSkill = (comment.currentText ?? comment.jobRequirement ?? "required skill").replace(/^job title:\s*/i, "").trim();
+    return `Missing evidence: ${missingSkill}`;
+  }
+  return comment.title;
+}
+
 export function CommentMargin({ comments, selectedCommentId, onSelect }: { comments: ResumeComment[]; selectedCommentId?: string; onSelect: (comment: ResumeComment) => void }) {
   const openComments = comments.filter((comment) => comment.status !== "resolved" && comment.status !== "ignored");
   return (
@@ -13,7 +21,7 @@ export function CommentMargin({ comments, selectedCommentId, onSelect }: { comme
           data-testid="margin-comment"
         >
           <span className={`severity-dot severity-${comment.severity}`} aria-hidden="true" />
-          <span>{comment.title}</span>
+          <span>{commentTitle(comment)}</span>
         </button>
       ))}
     </aside>

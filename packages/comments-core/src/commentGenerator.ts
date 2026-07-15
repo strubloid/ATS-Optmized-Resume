@@ -103,6 +103,7 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
   for (const missing of input.evidence.unsupportedRequirements) {
     const targetSection = skills ?? summary ?? input.generatedResume.sections[0];
     if (!targetSection) continue;
+    const missingSkill = missing.requirement.skill ?? missing.requirement.text;
     if (missing.relatedEvidence) {
       comments.push(createComment({
         seed: `${input.generatedResume.id}:${missing.requirement.id}:related-evidence`,
@@ -127,11 +128,11 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
       resumeSectionId: targetSection.id,
       targetTextHash: stableHash(targetSection.content),
       severity: "blocked",
-      title: "Missing evidence for required skill",
+      title: `Missing evidence: ${missingSkill}`,
       message: missing.unsupportedReason ?? "A job requirement was not found in the master resume. Do not add it unless real evidence is added to resume.md.",
       source: "security-rule",
       category: "Unsupported Requirements",
-      currentText: missing.requirement.skill ?? missing.requirement.text,
+      currentText: missingSkill,
       evidence: missing.evidenceText ?? "No supporting resume evidence found.",
       jobRequirement: missing.requirement.text,
       estimatedScoreImpact: -2,

@@ -60,17 +60,17 @@ export function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div>
-          <p className="product-label">CurriculumOptimizer</p>
-          <h1>Resume optimization workbench</h1>
+        <div className="topbar-main">
+          <div>
+            <p className="product-label">CurriculumOptimizer</p>
+            <h1>Resume optimization workbench</h1>
+          </div>
+          <div className="topbar-actions">
+            <span>{user?.username ?? "Authenticated user"}</span>
+            <Button variant="quiet" onClick={logout}>Log out</Button>
+          </div>
         </div>
-        <div className="topbar-actions">
-          <span>{user?.username ?? "Authenticated user"}</span>
-          <Button variant="quiet" onClick={logout}>Log out</Button>
-        </div>
-      </header>
-      <div className="app-body">
-        <nav className="side-nav" aria-label="Main navigation">
+        <nav className="primary-nav" aria-label="Main navigation">
           {([
             ["dashboard", "Dashboard"],
             ["resume", "Master Resume"],
@@ -83,6 +83,8 @@ export function App() {
             <button key={value} className={page === value ? "is-active" : ""} onClick={() => setPage(value)}>{label}</button>
           ))}
         </nav>
+      </header>
+      <div className="app-body">
         <main className="content-area">
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           {page === "dashboard" ? <DashboardPage hasResume={Boolean(masterResume)} bundle={bundle} /> : null}
