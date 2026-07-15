@@ -203,7 +203,7 @@ describe("API security and abuse coverage", () => {
     expect(applied.body.generatedResume.markdown).toContain("transferable backend delivery experience");
   });
 
-  it("updates the compatibility score and clears an addressed missing requirement", async () => {
+  it("does not convert generated keyword text into source evidence", async () => {
     const store = createStore();
     const app = createApiApp(store);
     const token = await register(app, "reevaluate@example.com");
@@ -218,10 +218,8 @@ describe("API security and abuse coverage", () => {
     }).expect(200);
     const applied = await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${blocked.id}/accept`).set("Authorization", `Bearer ${token}`).send().expect(200);
 
-    expect(applied.body.scoreReport.totalScore).toBeGreaterThan(generated.scoreReport.totalScore);
-    expect(applied.body.scoreReport.unsupportedRequirements).not.toContain("Kubernetes");
-    expect(applied.body.generatedResume.unsupportedRequirements.some((item: { requirement: { skill?: string } }) => item.requirement.skill === "Kubernetes")).toBe(false);
-    expect(applied.body.comments.find((comment: { id: string }) => comment.id === "duplicate-kubernetes-comment").status).toBe("resolved");
+    expect(applied.body.scoreReport.unsupportedRequirements).toContain("Kubernetes");
+    expect(applied.body.generatedResume.unsupportedRequirements.some((item: { requirement: { skill?: string } }) => item.requirement.skill === "Kubernetes")).toBe(true);
   });
 
   it("supports owned job application editing and confirmed deletion boundaries", async () => {
@@ -260,5 +258,84 @@ describe("API security and abuse coverage", () => {
     await request(app).post("/api/auth/google/callback").send({ state: "invalid-state-value", email: "x@example.com", issuer: "accounts.google.com" }).expect(400);
     const start = await request(app).get("/api/auth/google/start").expect(200);
     await request(app).post("/api/auth/google/callback").send({ state: start.body.state, email: "x@example.com", issuer: "evil.example" }).expect(400);
+  });
+
+  it("returns requirement/evidence summaries, evidence lookup, and a targeted questionnaire", async () => {
+    const store = createStore();
+    const app = createApiApp(store);
+    const token = await register(app, "requirements@example.com");
+    const generated = await createGenerated(app, token);
+
+    const requirements = await request(app).get(`/api/generated/${generated.generatedResume.id}/requirements`).set("Authorization", `Bearer ${token}`).expect(200);
+    expect(requirements.body.matched.length).toBeGreaterThan(0);
+    expect(requirements.body.unsupported.some((item: { skill?: string }) => item.skill === "Kubernetes")).toBe(true);
+    expect(requirements.body.rulesVersion).toBe("v1");
+
+    const kubernetes = requirements.body.unsupported.find((item: { skill?: string }) => item.skill === "Kubernetes");
+    const evidence = await request(app).get(`/api/generated/${generated.generatedResume.id}/evidence/${kubernetes.id}`).set("Authorization", `Bearer ${token}`).expect(200);
+    expect(evidence.body.classification).toBe("unsupported");
+    expect(evidence.body.matched).toBe(false);
+    expect(evidence.body.evidence).toBeNull();
+
+    const questionnaire = await request(app).get(`/api/generated/${generated.generatedResume.id}/questionnaire`).set("Authorization", `Bearer ${token}`).expect(200);
+    expect(questionnaire.body.questions.length).toBeGreaterThan(0);
+    for (const question of questionnaire.body.questions) {
+      expect(["partial_transferable", "unsupported"]).toContain(question.classification);
+      expect(question.safeAction).toMatch(/master resume/i);
+      expect(question.unsafeAction).toMatch(/do not/i);
+    }
+  });
+
+  it("honors Idempotency-Key to return the same generated resume across retries", async () => {
+    const store = createStore();
+    const app = createApiApp(store);
+    const token = await register(app, "idempotency@example.com");
+    await request(app).put("/api/resumes/master").set("Authorization", `Bearer ${token}`).send({ markdown: resumeMarkdown, filename: "resume.md" }).expect(200);
+    const job = await request(app).post("/api/jobs").set("Authorization", `Bearer ${token}`).send({
+      companyName: "Acme",
+      roleTitle: "Senior Full Stack Engineer",
+      description: "React, TypeScript, Node.js, PostgreSQL, Docker, AWS, Playwright, and Kubernetes are required."
+    }).expect(201);
+
+    const first = await request(app).post(`/api/jobs/${job.body.job.id}/generate`).set("Authorization", `Bearer ${token}`).set("Idempotency-Key", "abc-123").send({}).expect(201);
+    const second = await request(app).post(`/api/jobs/${job.body.job.id}/generate`).set("Authorization", `Bearer ${token}`).set("Idempotency-Key", "abc-123").send({}).expect(201);
+    expect(first.body.generatedResume.id).toBe(second.body.generatedResume.id);
+  });
+
+  it("records a persisted AI audit log for generate, accept, and reject", async () => {
+    const store = createStore();
+    const app = createApiApp(store);
+    const token = await register(app, "audit@example.com");
+    const generated = await createGenerated(app, token);
+    const suggestion = generated.comments.find((comment: { riskLevel: string; suggestedReplacement?: string }) => comment.riskLevel === "low" && comment.suggestedReplacement);
+    expect(suggestion).toBeDefined();
+    await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${suggestion.id}/accept`).set("Authorization", `Bearer ${token}`).send().expect(200);
+    await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${suggestion.id}/reject`).set("Authorization", `Bearer ${token}`).send({ reason: "no" }).expect(200);
+
+    const audits = Array.from(store.aiAudits.values());
+    expect(audits.some((record) => record.action === "generate_cv")).toBe(true);
+    expect(audits.some((record) => record.action === "apply_suggestion")).toBe(true);
+    expect(audits.some((record) => record.action === "reject_suggestion")).toBe(true);
+    expect(audits.every((record) => record.provider === "rules-only" || record.provider === "opencode")).toBe(true);
+  });
+
+  it("score report lists matched, missing, partial, and unsupported requirements with per-item rule explanations", async () => {
+    const store = createStore();
+    const app = createApiApp(store);
+    const token = await register(app, "score-shape@example.com");
+    const generated = await createGenerated(app, token);
+    const score = generated.scoreReport;
+    expect(score.matchedRequirements.length).toBeGreaterThan(0);
+    expect(score.unsupportedRequirements).toContain("Kubernetes");
+    expect(Array.isArray(score.missingRequirements)).toBe(true);
+    expect(Array.isArray(score.partialRequirements)).toBe(true);
+    expect(score.evidenceByClass.direct.length).toBeGreaterThanOrEqual(0);
+    expect(score.evidenceByClass.unsupported).toContain("Kubernetes");
+    for (const key of Object.keys(score.breakdown) as Array<keyof typeof score.breakdown>) {
+      const explanation = score.explanations[key];
+      expect(explanation.ruleId).toMatch(/scoring\./);
+      expect(typeof explanation.summary).toBe("string");
+      expect(typeof explanation.reasoning).toBe("string");
+    }
   });
 });

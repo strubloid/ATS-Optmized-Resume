@@ -1,4 +1,4 @@
-import type { GeneratedResumeData, ResumeComment, ScoreReport } from "../../../../packages/shared/src";
+import type { AiAuditRecord, CvKnowledgeProfile, GeneratedResumeData, IdempotencyRecord, ResumeComment, ScoreReport } from "../../../../packages/shared/src";
 
 export interface UserRecord {
   id: string;
@@ -74,6 +74,7 @@ export interface AppStore {
   loginAttempts: Map<string, LoginAttemptRecord>;
   resumes: Map<string, ResumeRecord>;
   resumeVersions: Map<string, ResumeVersionRecord>;
+  cvProfiles: Map<string, CvKnowledgeProfile>;
   companies: Map<string, CompanyRecord>;
   jobs: Map<string, JobApplicationRecord>;
   generatedResumes: Map<string, GeneratedResumeData>;
@@ -81,6 +82,8 @@ export interface AppStore {
   comments: Map<string, ResumeComment[]>;
   exports: Map<string, ExportRecord>;
   aiSettings: Map<string, { apiKey: string; defaultModel: string; models: string[] }>;
+  aiAudits: Map<string, AiAuditRecord>;
+  idempotencyKeys: Map<string, IdempotencyRecord>;
 }
 
 export function createStore(): AppStore {
@@ -92,13 +95,16 @@ export function createStore(): AppStore {
     loginAttempts: new Map(),
     resumes: new Map(),
     resumeVersions: new Map(),
+    cvProfiles: new Map(),
     companies: new Map(),
     jobs: new Map(),
     generatedResumes: new Map(),
     scoreReports: new Map(),
     comments: new Map(),
-    exports: new Map()
-    ,aiSettings: new Map()
+    exports: new Map(),
+    aiSettings: new Map(),
+    aiAudits: new Map(),
+    idempotencyKeys: new Map()
   };
 }
 

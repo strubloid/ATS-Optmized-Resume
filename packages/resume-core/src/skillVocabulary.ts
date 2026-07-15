@@ -7,6 +7,11 @@ export const KNOWN_TECHNICAL_SKILLS = [
   "Express",
   "Python",
   "Django",
+  "Java",
+  "Spring",
+  "Hadoop",
+  "Unity",
+  "C#",
   "REST APIs",
   "GraphQL",
   "PostgreSQL",
@@ -40,7 +45,8 @@ export const KNOWN_TECHNICAL_SKILLS = [
   "Microservices",
   "API design",
   "Cloud operations",
-  "AWS certification"
+  "AWS certification",
+  "Blender"
 ] as const;
 
 export const SOFT_SKILLS = [

@@ -98,8 +98,53 @@ export class ApiClient {
     return this.request<{ improvement: { improvements: Array<{ suggestedReplacement: string; rationale: string }> } }>("/api/settings/ai/analyze", { method: "POST", body: JSON.stringify(input) });
   }
 
-  generate(jobId: string) {
-    return this.request<GeneratedBundle>(`/api/jobs/${jobId}/generate`, { method: "POST" });
+  generate(jobId: string, idempotencyKey?: string) {
+    return this.request<GeneratedBundle>(`/api/jobs/${jobId}/generate`, {
+      method: "POST",
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+      body: JSON.stringify({})
+    });
+  }
+
+  listRequirements(generatedResumeId: string) {
+    return this.request<{
+      generatedResumeId: string;
+      resumeVersionId: string;
+      rulesVersion: string;
+      matched: Array<{ id: string; skill?: string; text: string; classification: string }>;
+      unsupported: Array<{ id: string; skill?: string; text: string; classification: string; reason?: string }>;
+      partial: Array<{ id: string; skill?: string; text: string; classification: string; relatedSkill?: string }>;
+    }>(`/api/generated/${generatedResumeId}/requirements`);
+  }
+
+  getEvidenceForRequirement(generatedResumeId: string, requirementId: string) {
+    return this.request<{
+      generatedResumeId: string;
+      requirementId: string;
+      classification: string;
+      matched: boolean;
+      confidence: number;
+      evidence: { text: string; sectionId: string } | null;
+      relatedEvidence?: { skill: string; evidenceText: string; sourceSectionId: string; rationale: string };
+      unsupportedReason?: string;
+    }>(`/api/generated/${generatedResumeId}/evidence/${requirementId}`);
+  }
+
+  getQuestionnaire(generatedResumeId: string) {
+    return this.request<{
+      generatedResumeId: string;
+      resumeVersionId: string;
+      questions: Array<{
+        requirementId: string;
+        skill?: string;
+        requirementText: string;
+        classification: string;
+        question: string;
+        safeAction: string;
+        unsafeAction: string;
+        relatedSkill?: string;
+      }>;
+    }>(`/api/generated/${generatedResumeId}/questionnaire`);
   }
 
   acceptComment(generatedResumeId: string, commentId: string) {

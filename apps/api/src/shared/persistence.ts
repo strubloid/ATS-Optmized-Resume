@@ -23,6 +23,7 @@ export interface StoreSnapshot {
   loginAttempts?: Entries;
   resumes?: Entries;
   resumeVersions?: Entries;
+  cvProfiles?: Entries;
   companies?: Entries;
   jobs?: Entries;
   generatedResumes?: Entries;
@@ -30,6 +31,8 @@ export interface StoreSnapshot {
   comments?: Entries;
   exports?: Entries;
   aiSettings?: Entries;
+  aiAudits?: Entries;
+  idempotencyKeys?: Entries;
 }
 
 function mapToEntries<V>(map: Map<string, V>): Array<[string, V]> {
@@ -49,13 +52,16 @@ export function serializeStore(store: AppStore): StoreSnapshot {
     loginAttempts: mapToEntries(store.loginAttempts),
     resumes: mapToEntries(store.resumes),
     resumeVersions: mapToEntries(store.resumeVersions),
+    cvProfiles: mapToEntries(store.cvProfiles),
     companies: mapToEntries(store.companies),
     jobs: mapToEntries(store.jobs),
     generatedResumes: mapToEntries(store.generatedResumes),
     scoreReports: mapToEntries(store.scoreReports),
     comments: mapToEntries(store.comments),
-    exports: mapToEntries(store.exports)
-    ,aiSettings: mapToEntries(store.aiSettings)
+    exports: mapToEntries(store.exports),
+    aiSettings: mapToEntries(store.aiSettings),
+    aiAudits: mapToEntries(store.aiAudits),
+    idempotencyKeys: mapToEntries(store.idempotencyKeys)
   };
 }
 
@@ -67,6 +73,7 @@ export function hydrateStore(store: AppStore, snapshot: StoreSnapshot): void {
   store.loginAttempts = entriesToMap(snapshot.loginAttempts) as AppStore["loginAttempts"];
   store.resumes = entriesToMap(snapshot.resumes) as AppStore["resumes"];
   store.resumeVersions = entriesToMap(snapshot.resumeVersions) as AppStore["resumeVersions"];
+  store.cvProfiles = entriesToMap(snapshot.cvProfiles) as AppStore["cvProfiles"];
   store.companies = entriesToMap(snapshot.companies) as AppStore["companies"];
   store.jobs = entriesToMap(snapshot.jobs) as AppStore["jobs"];
   store.generatedResumes = entriesToMap(snapshot.generatedResumes) as AppStore["generatedResumes"];
@@ -74,6 +81,8 @@ export function hydrateStore(store: AppStore, snapshot: StoreSnapshot): void {
   store.comments = entriesToMap(snapshot.comments) as AppStore["comments"];
   store.exports = entriesToMap(snapshot.exports) as AppStore["exports"];
   store.aiSettings = entriesToMap(snapshot.aiSettings) as AppStore["aiSettings"];
+  store.aiAudits = entriesToMap(snapshot.aiAudits) as AppStore["aiAudits"];
+  store.idempotencyKeys = entriesToMap(snapshot.idempotencyKeys) as AppStore["idempotencyKeys"];
 }
 
 export async function loadStoreSnapshot(store: AppStore): Promise<void> {

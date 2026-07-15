@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { exportCleanPdfDocument, exportDocxDocument, renderAnnotatedReviewMarkdown, renderCleanResumeMarkdown } from "../../packages/document-exporter/src";
-import type { GeneratedResumeData, ResumeComment, ScoreReport } from "../../packages/shared/src";
+import type { GeneratedResumeData, ResumeComment, ScoreExplanationMap, ScoreReport } from "../../packages/shared/src";
 
 const generatedResume: GeneratedResumeData = {
   id: "generated_1",
@@ -46,19 +46,28 @@ const scoreReport: ScoreReport = {
     missingRequirementPenalty: -1
   },
   explanations: {
-    keywordMatch: "",
-    roleAlignment: "",
-    experienceRelevance: "",
-    skillEvidence: "",
-    formattingSafety: "",
-    measurableAchievements: "",
-    storytelling: "",
-    missingRequirementPenalty: ""
-  },
+    keywordMatch: { ruleId: "scoring.keyword.requirement-coverage", summary: "", reasoning: "" },
+    roleAlignment: { ruleId: "scoring.role.target-language", summary: "", reasoning: "" },
+    experienceRelevance: { ruleId: "scoring.experience.relevance", summary: "", reasoning: "" },
+    skillEvidence: { ruleId: "scoring.evidence.classification-credit", summary: "", reasoning: "" },
+    formattingSafety: { ruleId: "scoring.format.parser-safety", summary: "", reasoning: "" },
+    measurableAchievements: { ruleId: "scoring.evidence.measurable-outcomes", summary: "", reasoning: "" },
+    storytelling: { ruleId: "scoring.storytelling.structure", summary: "", reasoning: "" },
+    missingRequirementPenalty: { ruleId: "scoring.policy.no-double-penalty", summary: "", reasoning: "" }
+  } satisfies ScoreExplanationMap,
   strongPoints: [],
   needsImprovement: [],
   matchedRequirements: [],
+  missingRequirements: [],
   unsupportedRequirements: [],
+  partialRequirements: [],
+  evidenceByClass: {
+    direct: [],
+    equivalent: [],
+    strong_transferable: [],
+    partial_transferable: [],
+    unsupported: []
+  },
   rulesVersion: "v1",
   generatedAt: "2026-07-09T00:00:00Z"
 };

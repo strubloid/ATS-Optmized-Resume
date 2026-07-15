@@ -27,6 +27,7 @@ function createComment(input: Omit<ResumeComment, "id" | "createdAt" | "status">
     jobRequirement: input.jobRequirement,
     estimatedScoreImpact: input.estimatedScoreImpact,
     riskLevel: input.riskLevel,
+    classification: input.classification,
     createdAt: (input.now ?? new Date()).toISOString()
   };
 }
@@ -119,6 +120,7 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
         jobRequirement: missing.requirement.text,
         estimatedScoreImpact: 0,
         riskLevel: "medium",
+        classification: missing.classification,
         now
       }));
       continue;
@@ -137,6 +139,30 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
       jobRequirement: missing.requirement.text,
       estimatedScoreImpact: -2,
       riskLevel: "blocked",
+      classification: "unsupported",
+      now
+    }));
+  }
+
+  for (const partial of input.evidence.partialTransferableRequirements) {
+    const targetSection = skills ?? summary ?? input.generatedResume.sections[0];
+    if (!targetSection) continue;
+    const partialSkill = partial.requirement.skill ?? partial.requirement.text;
+    comments.push(createComment({
+      seed: `${input.generatedResume.id}:${partial.requirement.id}:partial`,
+      resumeSectionId: targetSection.id,
+      targetTextHash: stableHash(targetSection.content),
+      severity: "suggestion",
+      title: `Partial transferable evidence: ${partialSkill}`,
+      message: partial.relatedEvidence?.rationale ?? `${partialSkill} is only partially supported. Add a fact to resume.md or accept the partial credit.`,
+      source: "applicant-tracking-score",
+      category: "Unsupported Requirements",
+      currentText: partialSkill,
+      evidence: partial.evidenceText ?? partial.relatedEvidence?.evidenceText,
+      jobRequirement: partial.requirement.text,
+      estimatedScoreImpact: 1,
+      riskLevel: "medium",
+      classification: partial.classification,
       now
     }));
   }

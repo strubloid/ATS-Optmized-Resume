@@ -82,7 +82,10 @@ describe("core safety and truthful optimization", () => {
     expect(score.label).toBe("Estimated Applicant Tracking System compatibility score");
     expect(JSON.stringify(score)).not.toMatch(/Guaranteed ATS score/i);
     expect(score.breakdown.missingRequirementPenalty).toBeLessThanOrEqual(0);
-    expect(score.explanations.keywordMatch).toContain("requirements");
+    expect(score.explanations.keywordMatch.summary.toLowerCase()).toContain("requirement");
+    expect(score.explanations.skillEvidence.reasoning.toLowerCase()).toContain("direct");
+    expect(score.missingRequirements).toBeDefined();
+    expect(score.evidenceByClass).toBeDefined();
   });
 
   it("generates blocked comments for unsupported requirements", () => {
@@ -101,6 +104,6 @@ describe("core safety and truthful optimization", () => {
     });
     const scoreReport = calculateApplicantTrackingScore({ parsedResume: parsed, jobAnalysis: job, evidence, generatedResume });
     const comments = generateResumeComments({ generatedResume, evidence, scoreReport, securityWarnings: job.securityWarnings, now: new Date("2026-07-09T00:00:00Z") });
-    expect(comments.some((comment) => comment.title === "Missing evidence for required skill" && comment.riskLevel === "blocked")).toBe(true);
+    expect(comments.some((comment) => comment.title === "Missing evidence: Kubernetes" && comment.riskLevel === "blocked")).toBe(true);
   });
 });

@@ -4,7 +4,7 @@ import { applyAcceptedSuggestion, revertAcceptedSuggestion, updateCommentStatus 
 import { ApiError, asyncHandler, parseBody } from "../../shared/http";
 import { requireAuth, type AuthenticatedRequest } from "../../shared/authMiddleware";
 import type { AppStore } from "../../shared/store";
-import { reevaluateGeneratedResume, requireGeneratedResume } from "../optimization/optimization.service";
+import { recordAiAudit, reevaluateGeneratedResume, requireGeneratedResume } from "../optimization/optimization.service";
 
 const rejectSchema = z.object({ reason: z.string().max(500).optional() }).strict();
 const aiSuggestionSchema = z.object({ suggestedReplacement: z.string().min(1).max(5000), targetBulletId: z.string().min(1).max(200).optional() }).strict();
@@ -33,6 +33,21 @@ export function createCommentRouter(store: AppStore): Router {
     store.generatedResumes.set(evaluation.generatedResume.id, evaluation.generatedResume);
     store.scoreReports.set(evaluation.generatedResume.id, evaluation.scoreReport);
     store.comments.set(evaluation.generatedResume.id, updatedComments);
+    recordAiAudit(store, {
+      userId: user.id,
+      resumeVersionId: evaluation.generatedResume.resumeVersionId,
+      jobApplicationId: evaluation.generatedResume.jobApplicationId,
+      generatedResumeId: evaluation.generatedResume.id,
+      commentId: comment.id,
+      action: "apply_suggestion",
+      promptId: "rules-only-apply-suggestion-v1",
+      evidenceIds: comment.evidence ? [comment.evidence] : [],
+      promptSummary: `Apply suggestion for comment ${comment.id} (${comment.category}).`,
+      outputSummary: `Score ${evaluation.scoreReport.totalScore}/100 after apply.`,
+      riskLevel: comment.riskLevel,
+      safeOutcome: true,
+      provider: "rules-only"
+    });
     response.json({ generatedResume: evaluation.generatedResume, scoreReport: evaluation.scoreReport, comments: updatedComments });
   }));
 
@@ -50,6 +65,21 @@ export function createCommentRouter(store: AppStore): Router {
     store.generatedResumes.set(updatedGeneratedResume.id, updatedGeneratedResume);
     store.scoreReports.set(updatedGeneratedResume.id, updatedScoreReport);
     store.comments.set(bundle.generatedResume.id, updatedComments);
+    recordAiAudit(store, {
+      userId: user.id,
+      resumeVersionId: bundle.generatedResume.resumeVersionId,
+      jobApplicationId: bundle.generatedResume.jobApplicationId,
+      generatedResumeId: bundle.generatedResume.id,
+      commentId: comment.id,
+      action: "reject_suggestion",
+      promptId: "rules-only-reject-suggestion-v1",
+      evidenceIds: comment.evidence ? [comment.evidence] : [],
+      promptSummary: `Reject suggestion for comment ${comment.id} (${comment.category}).`,
+      outputSummary: `Suggestion rejected; status updated to rejected.`,
+      riskLevel: "low",
+      safeOutcome: true,
+      provider: "rules-only"
+    });
     response.json({ generatedResume: updatedGeneratedResume, scoreReport: updatedScoreReport, comments: updatedComments });
   }));
 
@@ -83,6 +113,21 @@ export function createCommentRouter(store: AppStore): Router {
       }
       : item);
     store.comments.set(bundle.generatedResume.id, updatedComments);
+    recordAiAudit(store, {
+      userId: user.id,
+      resumeVersionId: bundle.generatedResume.resumeVersionId,
+      jobApplicationId: bundle.generatedResume.jobApplicationId,
+      generatedResumeId: bundle.generatedResume.id,
+      commentId: comment.id,
+      action: "save_ai_suggestion",
+      promptId: "opencode-save-ai-suggestion-v1",
+      evidenceIds: body.targetBulletId ? [body.targetBulletId] : comment.evidence ? [comment.evidence] : [],
+      promptSummary: `Save AI suggestion for comment ${comment.id}; target bullet ${body.targetBulletId ?? "(section)"}.`,
+      outputSummary: `Suggestion saved and stored for user review.`,
+      riskLevel: "medium",
+      safeOutcome: true,
+      provider: "opencode"
+    });
     response.json({ generatedResume: bundle.generatedResume, scoreReport: bundle.scoreReport, comments: updatedComments });
   }));
 

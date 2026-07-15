@@ -37,6 +37,9 @@ test("user can generate, review, block unsupported skills, and hide comments in 
   await page.getByTestId("mode-unsupported").click();
   await expect(page.getByTestId("unsupported-requirements")).toContainText("Kubernetes");
 
+  await page.getByTestId("mode-questionnaire").click();
+  await expect(page.getByTestId("evidence-questionnaire")).toBeVisible();
+
   const cleanDownload = page.waitForEvent("download");
   await page.getByTestId("export-clean-pdf").click();
   expect((await cleanDownload).suggestedFilename()).toContain("pdf");

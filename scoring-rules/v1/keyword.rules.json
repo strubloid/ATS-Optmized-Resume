@@ -7,7 +7,18 @@
     "skillEvidence": 15,
     "formattingSafety": 10,
     "measurableAchievements": 10,
-    "storytelling": 5,
-    "missingRequirementPenalty": 5
+    "storytelling": 10,
+    "missingRequirementPenalty": 0
+  },
+  "evidenceCredits": {
+    "direct": 1.0,
+    "equivalent": 0.9,
+    "strong_transferable": 0.55,
+    "partial_transferable": 0.3,
+    "unsupported": 0
+  },
+  "policy": {
+    "positiveTotal": 100,
+    "appliesDoublePenalty": false
   }
 }

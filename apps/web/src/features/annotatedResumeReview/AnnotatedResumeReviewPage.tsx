@@ -3,6 +3,7 @@ import type { ApiClient, GeneratedBundle } from "../../api/client";
 import type { ResumeComment } from "../../../../../packages/shared/src";
 import { ExportButtons } from "../exportCenter/ExportButtons";
 import { CommentMargin } from "./CommentMargin";
+import { EvidenceQuestionnaire } from "./EvidenceQuestionnaire";
 import { ImprovementPanel } from "./ImprovementPanel";
 import { ResumeDocumentPreview } from "./ResumeDocumentPreview";
 import { ReviewModes, type ReviewMode } from "./ReviewModes";
@@ -77,6 +78,8 @@ export function AnnotatedResumeReviewPage({ api, bundle, sourceMarkdown, onBundl
             </article>
           ))}
         </div>
+      ) : mode === "questionnaire" ? (
+        <EvidenceQuestionnaire api={api} generatedResumeId={bundle.generatedResume.id} />
       ) : (
         <div className={`annotated-layout ${mode === "clean" ? "is-clean" : ""}`} data-testid="annotated-layout">
           {mode !== "clean" ? <CommentMargin comments={bundle.comments} selectedCommentId={selectedCommentId} onSelect={selectComment} /> : null}

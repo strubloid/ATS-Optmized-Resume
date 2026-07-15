@@ -3,6 +3,8 @@ import { z } from "zod";
 import { asyncHandler, parseBody } from "../../shared/http";
 import { requireAuth, type AuthenticatedRequest } from "../../shared/authMiddleware";
 import type { AppStore } from "../../shared/store";
+import { buildCvKnowledgeProfile, parseMarkdownResume } from "../../../../../packages/resume-core/src";
+import { recordAiAudit } from "../optimization/optimization.service";
 
 const settingsSchema = z.object({ apiKey: z.string().max(500).optional(), defaultModel: z.string().max(200).optional() }).strict();
 const analysisSchema = z
@@ -111,6 +113,15 @@ export function createSettingsRouter(store: AppStore): Router {
                 return;
             }
             const baseUrl = settings.defaultModel.startsWith("opencode-go/") ? "https://opencode.ai/zen/go/v1" : "https://opencode.ai/zen/v1";
+            const resume = Array.from(store.resumes.values()).find((item) => item.userId === userId);
+            const resumeVersion = resume ? store.resumeVersions.get(resume.currentVersionId) : undefined;
+            const cvProfile = resume && resumeVersion
+              ? store.cvProfiles.get(resume.currentVersionId) ?? (() => {
+                const profile = buildCvKnowledgeProfile(parseMarkdownResume(resumeVersion.markdown), resumeVersion.id);
+                store.cvProfiles.set(resumeVersion.id, profile);
+                return profile;
+              })()
+              : undefined;
             try {
                 const completion = await fetch(`${baseUrl}/chat/completions`, {
                     method: "POST",
@@ -126,14 +137,39 @@ export function createSettingsRouter(store: AppStore): Router {
                                 role: "system",
                                 content: `You are an exacting resume editor. Return JSON only: {"improvements":[{"suggestedReplacement":string,"rationale":string}]}. Create 2 or 3 distinct, paste-ready rewrites of currentText. Each rewrite is one natural resume bullet, 18 to 35 words, beginning with a strong verb and using plain professional language. Preserve only facts in currentText and resumeEvidence. Use the job requirement only to choose emphasis; never claim the requirement, job title, or a technology unless it appears in the evidence. A rewrite must contain only the candidate's experience, never advice, caveats, explanations, evidence labels, or instructions. Do not use these phrases: "demonstrates", "transferable", "relevant to", "confirm", "do not", "should", "resume", "candidate", "job title", or "experience relevant". rationale is a short editor note of at most 12 words that names the factual emphasis. Examples: currentText "Improved deployment workflows." -> suggestedReplacement "Improved deployment workflows by automating repeatable release steps for internal teams." currentText "Supported production incidents." -> suggestedReplacement "Resolved production incidents by diagnosing service failures and coordinating fixes with engineering teams."`,
                             },
-                            { role: "user", content: JSON.stringify({ requirement: input.requirement, currentText: input.currentText, context: input.context ?? "", resumeEvidence: input.evidence }) },
+                            { role: "user", content: JSON.stringify({ requirement: input.requirement, currentText: input.currentText, context: input.context ?? "", cvProfile, resumeEvidence: input.evidence }) },
                         ],
                     }),
                 });
                 if (!completion.ok) throw new Error(`OpenCode model request failed with HTTP ${completion.status}`);
                 const payload = (await completion.json()) as { choices?: Array<{ message?: { content?: string } }> };
-                response.json({ improvement: parseImprovements(payload.choices?.[0]?.message?.content ?? "") });
+                const improvement = parseImprovements(payload.choices?.[0]?.message?.content ?? "");
+                recordAiAudit(store, {
+                    userId,
+                    resumeVersionId: resume?.currentVersionId ?? "",
+                    action: "ask_ai_rewrite",
+                    promptId: "opencode-ask-rewrite-v1",
+                    evidenceIds: input.evidence.map((item) => item.id),
+                    promptSummary: `Ask AI rewrite for requirement: ${input.requirement.slice(0, 120)}`,
+                    outputSummary: `Returned ${improvement.improvements.length} paste-ready rewrites.`,
+                    riskLevel: "low",
+                    safeOutcome: true,
+                    provider: "opencode"
+                });
+                response.json({ improvement });
             } catch {
+                recordAiAudit(store, {
+                    userId,
+                    resumeVersionId: resume?.currentVersionId ?? "",
+                    action: "ask_ai_rewrite",
+                    promptId: "opencode-ask-rewrite-v1",
+                    evidenceIds: input.evidence.map((item) => item.id),
+                    promptSummary: `Ask AI rewrite for requirement: ${input.requirement.slice(0, 120)}`,
+                    outputSummary: "Provider call failed; fallback returned to the UI.",
+                    riskLevel: "high",
+                    safeOutcome: false,
+                    provider: "opencode"
+                });
                 response.status(502).json({ error: "AI could not create evidence-grounded rewrites. Try again in a moment." });
             }
         }),

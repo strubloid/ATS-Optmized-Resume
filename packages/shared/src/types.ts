@@ -33,6 +33,16 @@ export interface ParsedResume {
   warnings: string[];
 }
 
+export interface CvKnowledgeProfile {
+  resumeVersionId: Identifier;
+  summary: string;
+  skills: string[];
+  roleHeadings: string[];
+  focusAreas: string[];
+  evidence: Array<{ id: Identifier; sectionId: Identifier; bulletId?: Identifier; text: string }>;
+  createdAt: string;
+}
+
 export interface JobDescriptionInput {
   companyName: string;
   roleTitle: string;
@@ -62,10 +72,26 @@ export interface JobDescriptionAnalysis {
   securityWarnings: string[];
 }
 
+export type EvidenceClassification =
+  | "direct"
+  | "equivalent"
+  | "strong_transferable"
+  | "partial_transferable"
+  | "unsupported";
+
+export const EVIDENCE_CLASSIFICATION_CREDITS: Record<EvidenceClassification, number> = {
+  direct: 1.0,
+  equivalent: 0.9,
+  strong_transferable: 0.55,
+  partial_transferable: 0.3,
+  unsupported: 0
+};
+
 export interface EvidenceMatch {
   requirement: JobRequirement;
   matched: boolean;
   confidence: number;
+  classification: EvidenceClassification;
   evidenceText?: string;
   sourceSectionId?: Identifier;
   unsupportedReason?: string;
@@ -77,6 +103,21 @@ export interface EvidenceMatchResult {
   matchedRequirements: EvidenceMatch[];
   partiallyMatchedRequirements: EvidenceMatch[];
   unsupportedRequirements: EvidenceMatch[];
+  directRequirements: EvidenceMatch[];
+  equivalentRequirements: EvidenceMatch[];
+  strongTransferableRequirements: EvidenceMatch[];
+  partialTransferableRequirements: EvidenceMatch[];
+}
+
+export interface EvidenceQuestion {
+  requirementId: Identifier;
+  skill?: string;
+  requirementText: string;
+  classification: EvidenceClassification;
+  question: string;
+  safeAction: string;
+  unsafeAction: string;
+  relatedSkill?: string;
 }
 
 export interface GeneratedResumeSection extends ResumeSection {
@@ -117,6 +158,7 @@ export interface ResumeComment {
   jobRequirement?: string;
   estimatedScoreImpact?: number;
   riskLevel: "low" | "medium" | "high" | "blocked";
+  classification?: EvidenceClassification;
   createdAt: string;
 }
 
@@ -131,17 +173,28 @@ export interface ScoreBreakdown {
   missingRequirementPenalty: number;
 }
 
+export interface ScoreCategoryExplanation {
+  ruleId: string;
+  summary: string;
+  reasoning: string;
+}
+
+export type ScoreExplanationMap = Record<keyof ScoreBreakdown, ScoreCategoryExplanation>;
+
 export interface ScoreReport {
   id: Identifier;
   generatedResumeId: Identifier;
   label: "Estimated Applicant Tracking System compatibility score";
   totalScore: number;
   breakdown: ScoreBreakdown;
-  explanations: Record<keyof ScoreBreakdown, string>;
+  explanations: ScoreExplanationMap;
   strongPoints: string[];
   needsImprovement: string[];
   matchedRequirements: string[];
+  missingRequirements: string[];
   unsupportedRequirements: string[];
+  partialRequirements: string[];
+  evidenceByClass: Record<EvidenceClassification, string[]>;
   rulesVersion: string;
   generatedAt: string;
 }
@@ -150,4 +203,40 @@ export interface OptimizedResumeResult {
   generatedResume: GeneratedResumeData;
   scoreReport: ScoreReport;
   comments: ResumeComment[];
+}
+
+export type AiAuditAction =
+  | "analyze_job_description"
+  | "generate_cv"
+  | "ask_ai_rewrite"
+  | "save_ai_suggestion"
+  | "apply_suggestion"
+  | "reject_suggestion"
+  | "questionnaire";
+
+export interface AiAuditRecord {
+  id: Identifier;
+  userId: Identifier;
+  resumeVersionId: Identifier;
+  jobApplicationId?: Identifier;
+  generatedResumeId?: Identifier;
+  commentId?: Identifier;
+  promptId: string;
+  action: AiAuditAction;
+  evidenceIds: Identifier[];
+  promptSummary: string;
+  outputSummary: string;
+  riskLevel: "low" | "medium" | "high" | "blocked";
+  safeOutcome: boolean;
+  provider: "rules-only" | "opencode" | "openai";
+  createdAt: string;
+}
+
+export interface IdempotencyRecord {
+  key: string;
+  userId: Identifier;
+  route: string;
+  generatedResumeId: Identifier;
+  scoreReportId: Identifier;
+  createdAt: string;
 }

@@ -1,4 +1,4 @@
-import { sanitizeMarkdownInput } from "../../../../../packages/resume-core/src";
+import { buildCvKnowledgeProfile, parseMarkdownResume, sanitizeMarkdownInput } from "../../../../../packages/resume-core/src";
 import { ApiError } from "../../shared/http";
 import { createId } from "../../shared/ids";
 import type { AppStore, ResumeRecord, ResumeVersionRecord } from "../../shared/store";
@@ -26,6 +26,7 @@ export function upsertMasterResume(store: AppStore, userId: string, markdown: st
     createdAt: now
   };
   store.resumeVersions.set(version.id, version);
+  store.cvProfiles.set(version.id, buildCvKnowledgeProfile(parseMarkdownResume(sanitized), version.id, now));
   const resume: ResumeRecord = existing
     ? { ...existing, currentVersionId: version.id, updatedAt: now }
     : { id: resumeId, userId, currentVersionId: version.id, createdAt: now, updatedAt: now };
