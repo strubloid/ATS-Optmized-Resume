@@ -1,7 +1,16 @@
-import type { EvidenceClassification, EvidenceMatchResult, GeneratedResumeData, JobDescriptionAnalysis, ParsedResume, ScoreBreakdown, ScoreCategoryExplanation, ScoreExplanationMap, ScoreReport } from "../../shared/src";
+import type { EvidenceClassification, EvidenceMatchResult, GeneratedResumeData, JobDescriptionAnalysis, ParsedResume, ResumeSectionKind, ScoreBreakdown, ScoreCategoryExplanation, ScoreExplanationMap, ScoreReport } from "../../shared/src";
 import { EVIDENCE_CLASSIFICATION_CREDITS } from "../../shared/src";
 import { normalizeText, stableHash } from "../../resume-core/src";
 import { EMPTY_EXPLANATION, POSITIVE_CATEGORY_TOTAL, SCORE_WEIGHTS, SCORING_RULE_IDS, SCORING_RULES_VERSION, clampScore, creditFor } from "./scoringRules";
+import {
+  detectBulletOpenerVerb,
+  detectContactInfo,
+  detectEducationLevel,
+  detectExperienceTenureAndGaps,
+  detectHighestEducationFromResume,
+  detectYearsOfExperienceRequired,
+  hasStandardSection
+} from "./atsHeuristics";
 
 export interface ScoreCalculatorInput {
   parsedResume: ParsedResume;
@@ -121,23 +130,164 @@ function scoreStorytelling(input: ScoreCalculatorInput): { value: number; explan
   const kinds = new Set(input.generatedResume.sections.map((section) => section.kind));
   const expected = ["summary", "skills", "experience"] as const;
   const present = expected.filter((kind) => kinds.has(kind));
-  const coreScore = Math.round(5 * ratio(present.length, expected.length));
+  const coreScore = Math.round(3 * ratio(present.length, expected.length));
   const summary = input.generatedResume.sections.find((section) => section.kind === "summary");
   const summaryWords = summary?.content.split(/\s+/).filter(Boolean).length ?? 0;
-  const summaryScore = summaryWords >= 35 && summaryWords <= 85 ? 5 : 0;
-  const experience = input.generatedResume.sections.find((section) => section.kind === "experience");
-  const bulletCount = experience?.bullets.length ?? 0;
-  const bulletScore = bulletCount >= 3 ? 0 : 0;
-  const value = Math.min(SCORE_WEIGHTS.storytelling, coreScore + summaryScore + bulletScore);
-  const reasoning = `Core sections present: ${present.join(", ") || "none"}. Summary word count: ${summaryWords}. Experience bullets: ${bulletCount}.`;
+  const summaryScore = summaryWords >= 35 && summaryWords <= 85 ? 2 : 0;
+  const value = Math.min(SCORE_WEIGHTS.storytelling, coreScore + summaryScore);
+  const reasoning = `Core sections present: ${present.join(", ") || "none"}. Summary word count: ${summaryWords}.`;
   return { value, explanation: explanation(SCORING_RULE_IDS.storytelling, "Checks that the CV has the core sections and a focused summary for clear candidate storytelling.", reasoning) };
 }
 
-function scoreMissingPenalty(): { value: number; explanation: ScoreCategoryExplanation } {
-  return {
-    value: 0,
-    explanation: explanation(SCORING_RULE_IDS.missingRequirementPenalty, "Scoring policy: unsupported requirements already reduce the evidence-based categories; no second penalty is applied.", "Policy: the score categories total 100 points; missing requirements reduce their own categories rather than being deducted again.")
+function scoreContactCompleteness(input: ScoreCalculatorInput): { value: number; explanation: ScoreCategoryExplanation } {
+  const contact = detectContactInfo(input.parsedResume.sanitizedMarkdown);
+  const fields: Array<{ key: keyof typeof contact; label: string; weight: number }> = [
+    { key: "name", label: "name", weight: 1.5 },
+    { key: "email", label: "email", weight: 1.5 },
+    { key: "phone", label: "phone", weight: 1 },
+    { key: "location", label: "location", weight: 1 },
+    { key: "linkedin", label: "LinkedIn", weight: 0.5 },
+    { key: "website", label: "portfolio/GitHub link", weight: 0.5 }
+  ];
+  const present = fields.filter((field) => Boolean(contact[field.key]));
+  const earned = present.reduce((sum, field) => sum + field.weight, 0);
+  const max = fields.reduce((sum, field) => sum + field.weight, 0);
+  const value = Math.round(SCORE_WEIGHTS.contactCompleteness * ratio(earned, max));
+  const missing = fields.filter((field) => !contact[field.key]).map((field) => field.label);
+  const reasoning = `Detected: ${present.map((field) => field.label).join(", ") || "none"}. Missing: ${missing.join(", ") || "none"}.`;
+  return { value, explanation: explanation(SCORING_RULE_IDS.contactCompleteness, "Verifies the parsed CV contains the contact information an Applicant Tracking System needs to route and search the candidate.", reasoning) };
+}
+
+function scoreSectionStructure(input: ScoreCalculatorInput): { value: number; explanation: ScoreCategoryExplanation } {
+  const sections = input.generatedResume.sections;
+  const required: ResumeSectionKind[] = ["summary", "skills", "experience"];
+  const standardKinds: Record<string, string[]> = {
+    summary: ["summary", "profile", "about"],
+    skills: ["skills", "technical-skills", "core-competencies"],
+    experience: ["experience", "work-experience", "professional-experience", "employment"],
+    education: ["education", "academic", "qualifications"],
+    projects: ["projects", "side-projects", "selected-projects"]
   };
+  const present: string[] = [];
+  const renamed: string[] = [];
+  for (const [kind, aliases] of Object.entries(standardKinds)) {
+    if (sections.some((section) => section.kind === kind)) {
+      present.push(kind);
+    } else if (aliases.some((alias) => sections.some((section) => section.heading.replace(/^#+\s*/, "").toLowerCase().replace(/\s+/g, "-") === alias))) {
+      renamed.push(kind);
+    }
+  }
+  const requiredHits = required.filter((kind) => present.includes(kind) || renamed.includes(kind)).length;
+  const expectedCount = 5;
+  const discovered = present.length + renamed.length;
+  const structureRatio = ratio(requiredHits, required.length);
+  const discoveryRatio = ratio(Math.min(discovered, expectedCount), expectedCount);
+  const value = Math.round(SCORE_WEIGHTS.sectionStructure * (0.6 * structureRatio + 0.4 * discoveryRatio));
+  const reasoning = `Detected sections: ${[...present, ...renamed].join(", ") || "none"}. Required (summary, skills, experience) covered: ${requiredHits}/${required.length}.`;
+  return { value, explanation: explanation(SCORING_RULE_IDS.sectionStructure, "Checks that the generated CV uses standard, parser-friendly section headings and includes the required summary, skills, and experience sections.", reasoning) };
+}
+
+function scoreTenureAndDates(input: ScoreCalculatorInput): { value: number; explanation: ScoreCategoryExplanation } {
+  const experienceSections = input.generatedResume.sections.filter((section) => section.kind === "experience");
+  const insights = detectExperienceTenureAndGaps(experienceSections);
+  let value = SCORE_WEIGHTS.tenureAndDates;
+  const notes: string[] = [];
+  if (!insights.ranges.length) {
+    notes.push("No date ranges detected; the generated resume may be missing employment dates.");
+    value = Math.max(0, value - 2);
+  }
+  if (insights.ranges.length >= 2 && !insights.consistentDateFormat) {
+    notes.push("Inconsistent date formats across roles; parsers may interpret dates differently.");
+    value = Math.max(0, value - 1);
+  }
+  if (insights.largestGapMonths > 6) {
+    notes.push(`Largest unexplained gap is ~${insights.largestGapMonths} months.`);
+    value = Math.max(0, value - 1);
+  } else if (insights.largestGapMonths > 0) {
+    notes.push(`Smallest gap is ~${insights.largestGapMonths} months.`);
+  }
+  if (!insights.recentRangeWithin12Months) {
+    notes.push("Most recent role is not flagged as current/recent; recruiters may down-rank the candidate.");
+    value = Math.max(0, value - 1);
+  }
+  const reasoning = notes.length ? notes.join(" ") : "Date ranges look consistent and recent.";
+  return { value, explanation: explanation(SCORING_RULE_IDS.tenureAndDates, "Checks date format consistency, recent employment, and unexplained gaps across experience entries.", reasoning) };
+}
+
+function scoreActionVerbs(input: ScoreCalculatorInput): { value: number; explanation: ScoreCategoryExplanation } {
+  const bullets = input.generatedResume.sections.flatMap((section) => section.bullets);
+  if (!bullets.length) {
+    return { value: 0, explanation: explanation(SCORING_RULE_IDS.actionVerbs, "Rewards bullets that begin with strong action verbs and avoids weak openers like 'responsible for'.", "The generated resume has no bullets to evaluate.") };
+  }
+  let strong = 0;
+  let weak = 0;
+  for (const bullet of bullets) {
+    const opener = detectBulletOpenerVerb(bullet.text);
+    if (!opener) continue;
+    if (opener.isStrong) strong += 1;
+    else weak += 1;
+  }
+  const evaluated = strong + weak;
+  const value = Math.round(SCORE_WEIGHTS.actionVerbs * (evaluated > 0 ? ratio(strong, evaluated) : 0));
+  return { value, explanation: explanation(SCORING_RULE_IDS.actionVerbs, "Rewards bullets that begin with strong action verbs and avoids weak openers like 'responsible for'.", `${strong} of ${evaluated} bullets start with a recognised strong action verb.`) };
+}
+
+function scoreKnockoutCompliance(input: ScoreCalculatorInput): { value: number; explanation: ScoreCategoryExplanation } {
+  const jobDescription = `${input.jobAnalysis.roleTitle ? `${input.jobAnalysis.roleTitle}. ` : ""}${input.jobAnalysis.responsibilities.join(" ")} ${input.jobAnalysis.requiredSkills.join(" ")} ${input.jobAnalysis.preferredSkills.join(" ")} ${input.jobAnalysis.softSkills.join(" ")}`;
+  const experienceSections = input.generatedResume.sections.filter((section) => section.kind === "experience");
+  const fullText = `${input.parsedResume.sanitizedMarkdown}\n${experienceSections.map((section) => section.content).join("\n")}`;
+  const insights = detectExperienceTenureAndGaps(experienceSections);
+  const tenureYears = insights.totalMonths / 12;
+  const yearsRequired = detectYearsOfExperienceRequired(jobDescription);
+  const yearsMatch: { hit: boolean; note: string } = (() => {
+    if (yearsRequired.total == null) return { hit: true, note: "No years-of-experience threshold detected in the job description." };
+    if (tenureYears >= yearsRequired.total) return { hit: true, note: `Detected ~${tenureYears.toFixed(1)} years of experience; meets the ~${yearsRequired.total} year requirement.` };
+    return { hit: false, note: `Detected ~${tenureYears.toFixed(1)} years of experience; the job description asks for ~${yearsRequired.total} years.` };
+  })();
+  const seniorityRequired = input.jobAnalysis.seniority;
+  const seniorityResume = inferResumeSeniority(input.jobAnalysis, experienceSections);
+  const seniorityMatch: { hit: boolean; note: string } = (() => {
+    if (seniorityRequired === "unknown" || seniorityResume === "unknown") return { hit: true, note: "Seniority could not be inferred; not penalised." };
+    if (seniorityResume === seniorityRequired) return { hit: true, note: `Resume seniority (${seniorityResume}) matches the job's seniority (${seniorityRequired}).` };
+    return { hit: false, note: `Resume seniority reads as ${seniorityResume} but the job description asks for ${seniorityRequired}.` };
+  })();
+  const requiredEducation = detectEducationLevel(jobDescription);
+  const resumeEducation = detectHighestEducationFromResume(experienceSections, fullText);
+  const educationMatch: { hit: boolean; note: string } = (() => {
+    if (requiredEducation === "none") return { hit: true, note: "No explicit degree level required." };
+    if (resumeEducation === "unknown") return { hit: false, note: `The job description asks for a ${requiredEducation} degree; no education entry was detected in the resume.` };
+    if (educationAtLeast(resumeEducation, requiredEducation)) return { hit: true, note: `Resume education (${resumeEducation}) meets the ${requiredEducation} requirement.` };
+    return { hit: false, note: `Resume education (${resumeEducation}) does not meet the ${requiredEducation} requirement.` };
+  })();
+  const checks = [yearsMatch, seniorityMatch, educationMatch];
+  const passes = checks.filter((check) => check.hit).length;
+  const value = Math.round(SCORE_WEIGHTS.knockoutCompliance * ratio(passes, checks.length));
+  const reasoning = checks.map((check) => check.note).join(" ");
+  return { value, explanation: explanation(SCORING_RULE_IDS.knockoutCompliance, "Simulates the knockout filters an Applicant Tracking System applies: years of experience, seniority, and education level.", reasoning) };
+}
+
+const EDUCATION_RANK: Record<string, number> = {
+  highschool: 1,
+  associate: 2,
+  bachelor: 3,
+  master: 4,
+  phd: 5
+};
+
+function educationAtLeast(actual: keyof typeof EDUCATION_RANK, required: keyof typeof EDUCATION_RANK): boolean {
+  return (EDUCATION_RANK[actual] ?? 0) >= (EDUCATION_RANK[required] ?? 0);
+}
+
+function inferResumeSeniority(jobAnalysis: JobDescriptionAnalysis, experienceSections: Array<{ content: string; bullets: Array<{ text: string }> }>): "intern" | "junior" | "mid" | "senior" | "lead" | "unknown" {
+  const seniorIndicators = /(senior|staff|principal|lead|architect|head\s+of|manager|director)/i;
+  const juniorIndicators = /(intern|junior|graduate|trainee|entry[\s-]?level)/i;
+  const text = experienceSections.map((section) => `${section.content} ${section.bullets.map((bullet) => bullet.text).join(" ")}`).join("\n");
+  if (seniorIndicators.test(text)) return "senior";
+  if (juniorIndicators.test(text)) return "junior";
+  if (jobAnalysis.seniority === "senior" || jobAnalysis.seniority === "lead") return "senior";
+  if (jobAnalysis.seniority === "mid") return "mid";
+  if (jobAnalysis.seniority === "junior" || jobAnalysis.seniority === "intern") return "junior";
+  return "unknown";
 }
 
 function emptyExplanations(): ScoreExplanationMap {
@@ -166,7 +316,11 @@ export function calculateApplicantTrackingScore(input: ScoreCalculatorInput): Sc
   const formatting = scoreFormattingSafety(input);
   const measurable = scoreMeasurableAchievements(input);
   const story = scoreStorytelling(input);
-  const penalty = scoreMissingPenalty();
+  const contact = scoreContactCompleteness(input);
+  const structure = scoreSectionStructure(input);
+  const tenure = scoreTenureAndDates(input);
+  const verbs = scoreActionVerbs(input);
+  const knockout = scoreKnockoutCompliance(input);
 
   const breakdown: ScoreBreakdown = {
     keywordMatch: clampScore(keyword.value, 0, SCORE_WEIGHTS.keywordMatch),
@@ -176,7 +330,11 @@ export function calculateApplicantTrackingScore(input: ScoreCalculatorInput): Sc
     formattingSafety: clampScore(formatting.value, 0, SCORE_WEIGHTS.formattingSafety),
     measurableAchievements: clampScore(measurable.value, 0, SCORE_WEIGHTS.measurableAchievements),
     storytelling: clampScore(story.value, 0, SCORE_WEIGHTS.storytelling),
-    missingRequirementPenalty: clampScore(penalty.value, 0, SCORE_WEIGHTS.missingRequirementPenalty)
+    contactCompleteness: clampScore(contact.value, 0, SCORE_WEIGHTS.contactCompleteness),
+    sectionStructure: clampScore(structure.value, 0, SCORE_WEIGHTS.sectionStructure),
+    tenureAndDates: clampScore(tenure.value, 0, SCORE_WEIGHTS.tenureAndDates),
+    actionVerbs: clampScore(verbs.value, 0, SCORE_WEIGHTS.actionVerbs),
+    knockoutCompliance: clampScore(knockout.value, 0, SCORE_WEIGHTS.knockoutCompliance)
   };
 
   const totalScore = clampScore(Object.values(breakdown).reduce((sum, value) => sum + value, 0), 0, POSITIVE_CATEGORY_TOTAL);
@@ -189,7 +347,11 @@ export function calculateApplicantTrackingScore(input: ScoreCalculatorInput): Sc
   explanations.formattingSafety = formatting.explanation;
   explanations.measurableAchievements = measurable.explanation;
   explanations.storytelling = story.explanation;
-  explanations.missingRequirementPenalty = penalty.explanation;
+  explanations.contactCompleteness = contact.explanation;
+  explanations.sectionStructure = structure.explanation;
+  explanations.tenureAndDates = tenure.explanation;
+  explanations.actionVerbs = verbs.explanation;
+  explanations.knockoutCompliance = knockout.explanation;
 
   const matchedRequirements = input.evidence.matches.filter((match) => match.matched).map((match) => match.requirement.skill ?? match.requirement.text);
   const missingRequirements = input.evidence.matches.filter((match) => match.classification !== "unsupported" && !match.matched).map((match) => match.requirement.skill ?? match.requirement.text);
@@ -204,15 +366,26 @@ export function calculateApplicantTrackingScore(input: ScoreCalculatorInput): Sc
     breakdown,
     explanations,
     strongPoints: [
-      breakdown.formattingSafety >= 9 ? "Clean Applicant Tracking System readable structure" : undefined,
-      breakdown.keywordMatch >= 18 ? "Strong keyword coverage from supported evidence" : undefined,
-      breakdown.skillEvidence >= 11 ? "Skills are supported by resume evidence" : undefined,
+      breakdown.formattingSafety >= 7 ? "Parser-safe structure with no flagged formatting risks" : undefined,
+      breakdown.keywordMatch >= 14 ? "Strong keyword coverage from supported evidence" : undefined,
+      breakdown.skillEvidence >= 8 ? "Skills are backed by source-resume evidence" : undefined,
+      breakdown.contactCompleteness >= 5 ? "Contact block is complete and parser-friendly" : undefined,
+      breakdown.sectionStructure >= 5 ? "Standard section headings detected" : undefined,
+      breakdown.actionVerbs >= 4 ? "Bullets open with strong action verbs" : undefined,
+      breakdown.measurableAchievements >= 6 ? "Bullets include measurable impact" : undefined,
+      breakdown.knockoutCompliance >= 5 ? "Years, seniority, and education filters all pass" : undefined,
+      breakdown.tenureAndDates >= 4 ? "Consistent dates with no unexplained gaps" : undefined,
       classificationCount(input.evidence, "direct") >= 3 ? "Multiple direct evidence matches strengthen the score" : undefined
     ].filter((value): value is string => Boolean(value)),
     needsImprovement: [
       breakdown.measurableAchievements < 6 ? "Add measurable outcomes where truthful evidence exists" : undefined,
       input.evidence.unsupportedRequirements.length ? "Review unsupported or missing job requirements" : undefined,
-      breakdown.experienceRelevance < 12 ? "Move relevant experience evidence closer to the top" : undefined,
+      breakdown.experienceRelevance < 9 ? "Move relevant experience evidence closer to the top" : undefined,
+      breakdown.contactCompleteness < 5 ? "Add a complete contact block (name, email, phone, location, LinkedIn)" : undefined,
+      breakdown.sectionStructure < 5 ? "Use standard section headings (Summary, Skills, Experience, Education, Projects)" : undefined,
+      breakdown.actionVerbs < 4 ? "Start each bullet with a strong action verb (Built, Led, Designed, Shipped, Owned, …)" : undefined,
+      breakdown.tenureAndDates < 4 ? "Use a consistent date format and show current/present end dates" : undefined,
+      breakdown.knockoutCompliance < 5 ? "Address years of experience, seniority, and education level filters explicitly" : undefined,
       partialRequirements.length ? `Strengthen partial transferable evidence (${partialRequirements.length} partial matches)` : undefined
     ].filter((value): value is string => Boolean(value)),
     matchedRequirements,

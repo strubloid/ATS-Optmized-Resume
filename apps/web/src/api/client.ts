@@ -1,4 +1,4 @@
-import type { GeneratedResumeData, ResumeComment, ScoreReport } from "../../../../packages/shared/src";
+import type { GeneratedResumeData, InterviewQuestion, ResumeComment, ScoreReport, UserContextPayload } from "../../../../packages/shared/src";
 
 export interface AuthResponse {
   token: string;
@@ -94,8 +94,46 @@ export class ApiClient {
     return this.request<{ configured: boolean; defaultModel: string; models: string[] }>("/api/settings/ai/refresh", { method: "POST" });
   }
 
-  analyzeAiEvidence(input: { requirement: string; currentText: string; context?: string; evidence: Array<{ id: string; text: string }> }) {
-    return this.request<{ improvement: { improvements: Array<{ suggestedReplacement: string; rationale: string }> } }>("/api/settings/ai/analyze", { method: "POST", body: JSON.stringify(input) });
+  analyzeAiEvidence(input: { requirement: string; currentText: string; context?: string; evidence: Array<{ id: string; text: string }>; userContext?: UserContextPayload | null }) {
+    return this.rawRequest<{
+      improvement?: { improvements: Array<{ suggestedReplacement: string; rationale: string }> };
+      fallback?: { improvements: Array<{ suggestedReplacement: string; rationale: string }> };
+      code?: string;
+      error?: string;
+    }>("/api/settings/ai/analyze", { method: "POST", body: JSON.stringify(input) })
+      .then((payload) => ({
+        source: (payload.improvement ? "ai" : "rules") as "ai" | "rules",
+        improvements: payload.improvement?.improvements ?? payload.fallback?.improvements ?? [],
+        code: payload.code,
+        error: payload.error
+      }));
+  }
+
+  private async rawRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+    const token = this.getToken();
+    const headers = new Headers(options.headers);
+    if (!(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const response = await fetch(path, { ...options, headers });
+    if (response.status === 204) return undefined as T;
+    const payload = await response.json().catch(() => ({} as unknown));
+    return payload as T;
+  }
+
+  getInterviewQuestions(generatedResumeId: string, commentId: string) {
+    return this.request<{
+      generatedResumeId: string;
+      commentId: string;
+      requirement: { id: string; text: string; skill?: string };
+      questions: InterviewQuestion[];
+    }>(`/api/generated/${generatedResumeId}/comments/${commentId}/interview-questions`);
+  }
+
+  editSection(generatedResumeId: string, sectionId: string, content: string, bullets?: Array<{ id: string; text: string }>) {
+    return this.request<Pick<GeneratedBundle, "generatedResume" | "scoreReport" | "comments">>(`/api/generated/${generatedResumeId}/sections/${sectionId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ content, bullets })
+    });
   }
 
   generate(jobId: string, idempotencyKey?: string) {

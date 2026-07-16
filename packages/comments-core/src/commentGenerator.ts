@@ -1,5 +1,5 @@
 import type { EvidenceMatchResult, GeneratedResumeData, ResumeComment, ScoreReport } from "../../shared/src";
-import { stableHash } from "../../resume-core/src";
+import { rewriteResponsibilityRequirement, stableHash } from "../../resume-core/src";
 
 export interface CommentGeneratorInput {
   generatedResume: GeneratedResumeData;
@@ -7,6 +7,7 @@ export interface CommentGeneratorInput {
   scoreReport: ScoreReport;
   securityWarnings: string[];
   now?: Date;
+  parsedResume?: { sections: Array<{ id: string; heading: string; bullets: Array<{ id: string; text: string; sectionId: string }> }> };
 }
 
 function createComment(input: Omit<ResumeComment, "id" | "createdAt" | "status"> & { seed: string; now?: Date }): ResumeComment {
@@ -30,6 +31,17 @@ function createComment(input: Omit<ResumeComment, "id" | "createdAt" | "status">
     classification: input.classification,
     createdAt: (input.now ?? new Date()).toISOString()
   };
+}
+
+function findSourceBullet(input: CommentGeneratorInput, sourceSectionId: string | undefined, sourceBulletId: string | undefined) {
+  if (!sourceSectionId || !input.parsedResume) return undefined;
+  const section = input.parsedResume.sections.find((s) => s.id === sourceSectionId);
+  if (!section) return undefined;
+  if (sourceBulletId) {
+    const match = section.bullets.find((bullet) => bullet.id === sourceBulletId);
+    if (match) return match;
+  }
+  return section.bullets[0];
 }
 
 export function generateResumeComments(input: CommentGeneratorInput): ResumeComment[] {
@@ -106,19 +118,25 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
     if (!targetSection) continue;
     const missingSkill = missing.requirement.skill ?? missing.requirement.text;
     if (missing.relatedEvidence) {
+      const rewrite = input.parsedResume ? rewriteResponsibilityRequirement(toParsedResume(input.parsedResume), missing.requirement) : undefined;
+      const relatedBullet = findSourceBullet(input, missing.relatedEvidence.sourceSectionId, missing.relatedEvidence.sourceBulletId);
       comments.push(createComment({
         seed: `${input.generatedResume.id}:${missing.requirement.id}:related-evidence`,
         resumeSectionId: targetSection.id,
-        targetTextHash: stableHash(targetSection.content),
-        severity: "suggestion",
-        title: "Review related evidence",
-        message: missing.relatedEvidence.rationale,
-        source: "applicant-tracking-score",
-        category: "Unsupported Requirements",
-        currentText: missing.requirement.skill,
+        targetBulletId: relatedBullet?.id,
+        targetTextHash: relatedBullet ? stableHash(relatedBullet.text) : stableHash(targetSection.content),
+        severity: rewrite ? "suggestion" : "improvement",
+        title: rewrite ? `Confirm and reword: ${missingSkill}` : "Review related evidence",
+        message: rewrite
+          ? `The master resume already proves this work via "${relatedBullet?.text ?? missing.relatedEvidence.evidenceText}". Apply the suggested rewrite to capture it in the generated CV.`
+          : missing.relatedEvidence.rationale,
+        source: rewrite ? "scoring-rule" : "applicant-tracking-score",
+        category: rewrite ? "Enhance Experience" : "Unsupported Requirements",
+        currentText: relatedBullet?.text ?? missing.relatedEvidence.evidenceText,
+        suggestedReplacement: rewrite?.rewrite,
         evidence: missing.relatedEvidence.evidenceText,
         jobRequirement: missing.requirement.text,
-        estimatedScoreImpact: 0,
+        estimatedScoreImpact: rewrite ? 1 : 0,
         riskLevel: "medium",
         classification: missing.classification,
         now
@@ -148,20 +166,27 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
     const targetSection = skills ?? summary ?? input.generatedResume.sections[0];
     if (!targetSection) continue;
     const partialSkill = partial.requirement.skill ?? partial.requirement.text;
+    const rewrite = input.parsedResume ? rewriteResponsibilityRequirement(toParsedResume(input.parsedResume), partial.requirement) : undefined;
+    const relatedBullet = partial.sourceSectionId ? findSourceBullet(input, partial.sourceSectionId, partial.sourceBulletId) : undefined;
+    const isResponsibility = !partial.requirement.skill;
     comments.push(createComment({
       seed: `${input.generatedResume.id}:${partial.requirement.id}:partial`,
       resumeSectionId: targetSection.id,
-      targetTextHash: stableHash(targetSection.content),
-      severity: "suggestion",
-      title: `Partial transferable evidence: ${partialSkill}`,
-      message: partial.relatedEvidence?.rationale ?? `${partialSkill} is only partially supported. Add a fact to resume.md or accept the partial credit.`,
-      source: "applicant-tracking-score",
-      category: "Unsupported Requirements",
-      currentText: partialSkill,
+      targetBulletId: relatedBullet?.id,
+      targetTextHash: relatedBullet ? stableHash(relatedBullet.text) : stableHash(targetSection.content),
+      severity: rewrite || isResponsibility ? "suggestion" : "improvement",
+      title: isResponsibility && rewrite ? `Confirm and reword: ${partialSkill}` : `Partial transferable evidence: ${partialSkill}`,
+      message: rewrite
+        ? `The master resume already proves this work via "${relatedBullet?.text ?? partial.evidenceText}". Apply the suggested rewrite to capture it in the generated CV.`
+        : partial.relatedEvidence?.rationale ?? `${partialSkill} is only partially supported. Add a fact to resume.md or accept the partial credit.`,
+      source: rewrite ? "scoring-rule" : "applicant-tracking-score",
+      category: rewrite ? "Enhance Experience" : "Unsupported Requirements",
+      currentText: relatedBullet?.text ?? partial.evidenceText,
+      suggestedReplacement: rewrite?.rewrite,
       evidence: partial.evidenceText ?? partial.relatedEvidence?.evidenceText,
       jobRequirement: partial.requirement.text,
-      estimatedScoreImpact: 1,
-      riskLevel: "medium",
+      estimatedScoreImpact: rewrite ? 1 : 0,
+      riskLevel: isResponsibility ? "medium" : "medium",
       classification: partial.classification,
       now
     }));
@@ -205,4 +230,21 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
   }
 
   return comments;
+}
+
+function toParsedResume(source: NonNullable<CommentGeneratorInput["parsedResume"]>): Parameters<typeof rewriteResponsibilityRequirement>[0] {
+  return {
+    rawMarkdown: "",
+    sanitizedMarkdown: "",
+    sections: source.sections.map((section) => ({
+      id: section.id,
+      kind: "other",
+      heading: section.heading,
+      content: section.bullets.map((bullet) => bullet.text).join("\n"),
+      bullets: section.bullets.map((bullet) => ({ id: bullet.id, sectionId: section.id, text: bullet.text }))
+    })),
+    skills: [],
+    contactLines: [],
+    warnings: []
+  };
 }

@@ -1,5 +1,5 @@
-import type { EvidenceClassification, EvidenceMatch, EvidenceMatchResult, JobDescriptionAnalysis, JobRequirement, ParsedResume } from "../../shared/src";
-import { skillAliases, transferableSkillFamilies } from "./skillVocabulary";
+import type { EvidenceClassification, EvidenceMatch, EvidenceMatchResult, JobDescriptionAnalysis, JobRequirement, ParsedResume, ResumeBullet, ResumeSection } from "../../shared/src";
+import { findResponsibilityMatch, responsibilityThemesForRequirement, skillAliases, transferableSkillFamilies, type ResponsibilityTheme } from "./skillVocabulary";
 import { normalizeText } from "./textSecurity";
 
 function findEvidence(parsedResume: ParsedResume, requirement: JobRequirement): Pick<EvidenceMatch, "evidenceText" | "sourceSectionId"> | undefined {
@@ -100,16 +100,65 @@ function isProgrammingFamily(skill: string | undefined): boolean {
   return ["node.js", "javascript", "typescript", "java", "python"].includes(skill.toLowerCase());
 }
 
+export interface ResponsibilityEvidence {
+  bullet: ResumeBullet;
+  section: ResumeSection;
+  theme: ResponsibilityTheme;
+  matchedSignals: string[];
+  rationale: string;
+}
+
+export function findResponsibilityEvidence(parsedResume: ParsedResume, requirement: JobRequirement): ResponsibilityEvidence | undefined {
+  if (requirement.type !== "responsibility" && requirement.type !== "soft-skill") return undefined;
+  if (requirement.skill) return undefined;
+  const themes = responsibilityThemesForRequirement(requirement.text);
+  if (!themes.length) return undefined;
+  let best: ResponsibilityEvidence | undefined;
+  for (const section of parsedResume.sections) {
+    for (const bullet of section.bullets) {
+      const match = findResponsibilityMatch(bullet.text, themes);
+      if (!match) continue;
+      if (!best || match.matchedSignals.length > (best.matchedSignals?.length ?? 0)) {
+        best = {
+          bullet,
+          section,
+          theme: match.theme,
+          matchedSignals: match.matchedSignals,
+          rationale: `Your work in ${section.heading} mentions ${match.matchedSignals.slice(0, 3).join(", ")}, which the master resume already proves for the ${match.theme.emphasis ?? match.theme.id} part of this requirement.`
+        };
+      }
+    }
+  }
+  return best;
+}
+
 export function matchEvidence(parsedResume: ParsedResume, analysis: JobDescriptionAnalysis): EvidenceMatchResult {
   const matches = analysis.requirements.map((requirement) => {
     const evidence = findEvidence(parsedResume, requirement);
     let classification = classify(parsedResume, requirement, evidence);
-    const relatedEvidence = classification === "unsupported" || classification === "partial_transferable"
+    let relatedEvidence: EvidenceMatch["relatedEvidence"] = classification === "unsupported" || classification === "partial_transferable"
       ? findTransferableEvidence(parsedResume, requirement)
       : undefined;
+
+    const responsibilityEvidence = classification === "unsupported" && !relatedEvidence
+      ? findResponsibilityEvidence(parsedResume, requirement)
+      : undefined;
+
+    if (classification === "unsupported" && responsibilityEvidence) {
+      classification = "partial_transferable";
+      relatedEvidence = {
+        skill: responsibilityEvidence.theme.id,
+        evidenceText: responsibilityEvidence.bullet.text,
+        sourceSectionId: responsibilityEvidence.section.id,
+        sourceBulletId: responsibilityEvidence.bullet.id,
+        rationale: responsibilityEvidence.rationale
+      };
+    }
+
     if (classification === "unsupported" && relatedEvidence) {
       classification = transferableClassification(parsedResume, requirement);
     }
+
     const confidence = confidenceFor(classification);
     const matched = classification === "direct" || classification === "equivalent";
     const unsupportedReason = matched
@@ -120,15 +169,18 @@ export function matchEvidence(parsedResume: ParsedResume, analysis: JobDescripti
           : "This job requirement was not found with enough supporting resume evidence."
         : requirement.skill
           ? `${requirement.skill} appears in the job description but is not directly supported by the master resume.`
-          : "This job requirement is only partially supported by the master resume.";
+          : responsibilityEvidence
+            ? `${requirement.text} is supported by related resume work but is not stated in those exact terms. Use Ask AI to draft a paste-ready rewrite from the existing bullet.`
+            : "This job requirement is only partially supported by the master resume.";
 
     return {
       requirement,
       matched,
       confidence,
       classification,
-      evidenceText: evidence?.evidenceText,
-      sourceSectionId: evidence?.sourceSectionId,
+      evidenceText: evidence?.evidenceText ?? responsibilityEvidence?.bullet.text,
+      sourceSectionId: evidence?.sourceSectionId ?? responsibilityEvidence?.section.id,
+      sourceBulletId: responsibilityEvidence?.bullet.id,
       unsupportedReason,
       relatedEvidence
     } satisfies EvidenceMatch;

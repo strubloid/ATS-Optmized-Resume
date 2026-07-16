@@ -9,6 +9,9 @@ import {
   reevaluateGeneratedResume,
   requireGeneratedResume
 } from "./optimization.service";
+import { buildInterviewQuestionsForRequirement } from "../../../../../packages/resume-core/src";
+import { analyzeJobDescription, matchEvidence, parseMarkdownResume } from "../../../../../packages/resume-core/src";
+import { requireMasterResume } from "../resumes/resume.service";
 
 const generateSchema = z.object({}).strict();
 
@@ -64,6 +67,39 @@ export function createOptimizationRouter(store: AppStore): Router {
   router.get("/generated/:generatedResumeId/questionnaire", asyncHandler(async (request, response) => {
     const user = (request as AuthenticatedRequest).user;
     response.json(getEvidenceQuestionnaire(store, user.id, request.params.generatedResumeId ?? ""));
+  }));
+
+  router.get("/generated/:generatedResumeId/comments/:commentId/interview-questions", asyncHandler(async (request, response) => {
+    const user = (request as AuthenticatedRequest).user;
+    const bundle = requireGeneratedResume(store, user.id, request.params.generatedResumeId ?? "");
+    const comment = bundle.comments.find((item) => item.id === (request.params.commentId ?? ""));
+    if (!comment) throw new Error("Comment not found");
+    const job = store.jobs.get(bundle.generatedResume.jobApplicationId);
+    const resume = requireMasterResume(store, user.id);
+    if (!job) throw new Error("Job application not found");
+    const parsedResume = parseMarkdownResume(resume.markdown);
+    const jobAnalysis = analyzeJobDescription({
+      companyName: job.companyName,
+      roleTitle: job.roleTitle,
+      location: job.location,
+      description: job.description,
+      recruiterNotes: job.recruiterNotes
+    });
+    const evaluation = reevaluateGeneratedResume(store, user.id, bundle.generatedResume);
+    const match = comment.jobRequirement
+      ? evaluation.evidence.matches.find((item) => item.requirement.text === comment.jobRequirement || item.requirement.skill === comment.jobRequirement)
+      : undefined;
+    const requirement = match?.requirement
+      ?? jobAnalysis.requirements.find((req) => req.text === comment.jobRequirement || req.skill === comment.jobRequirement)
+      ?? { id: comment.id, text: comment.jobRequirement ?? comment.title, normalized: comment.jobRequirement ?? comment.title, type: "required" as const, skill: comment.jobRequirement };
+    if (match) {
+      const questions = buildInterviewQuestionsForRequirement(evaluation.evidence, match.requirement.id, parsedResume);
+      response.json({ generatedResumeId: bundle.generatedResume.id, commentId: comment.id, requirement, questions });
+      return;
+    }
+    const syntheticResult = { ...evaluation.evidence, matches: [{ ...evaluation.evidence.matches[0], requirement, classification: "partial_transferable" as const, confidence: 0 }].filter(Boolean) } as typeof evaluation.evidence;
+    const questions = buildInterviewQuestionsForRequirement(syntheticResult, requirement.id, parsedResume);
+    response.json({ generatedResumeId: bundle.generatedResume.id, commentId: comment.id, requirement, questions });
   }));
 
   return router;

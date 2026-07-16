@@ -94,8 +94,9 @@ export interface EvidenceMatch {
   classification: EvidenceClassification;
   evidenceText?: string;
   sourceSectionId?: Identifier;
+  sourceBulletId?: Identifier;
   unsupportedReason?: string;
-  relatedEvidence?: { skill: string; evidenceText: string; sourceSectionId: Identifier; rationale: string };
+  relatedEvidence?: { skill: string; evidenceText: string; sourceSectionId: Identifier; sourceBulletId?: Identifier; rationale: string };
 }
 
 export interface EvidenceMatchResult {
@@ -170,7 +171,11 @@ export interface ScoreBreakdown {
   formattingSafety: number;
   measurableAchievements: number;
   storytelling: number;
-  missingRequirementPenalty: number;
+  contactCompleteness: number;
+  sectionStructure: number;
+  tenureAndDates: number;
+  actionVerbs: number;
+  knockoutCompliance: number;
 }
 
 export interface ScoreCategoryExplanation {
@@ -209,10 +214,29 @@ export type AiAuditAction =
   | "analyze_job_description"
   | "generate_cv"
   | "ask_ai_rewrite"
+  | "ask_ai_rewrite_with_user_context"
   | "save_ai_suggestion"
   | "apply_suggestion"
   | "reject_suggestion"
-  | "questionnaire";
+  | "manual_edit_section"
+  | "questionnaire"
+  | "ask_ai_rewrite_fallback";
+
+export interface InterviewQuestion {
+  id: string;
+  prompt: string;
+  whyItMatters: string;
+  suggestedAnswerHint: string;
+  category: "teamwork" | "leadership" | "skill-depth" | "responsibility" | "scope";
+}
+
+export interface UserContextPayload {
+  employer?: string;
+  project?: string;
+  skillName?: string;
+  answers?: Array<{ questionId: string; answer: string }>;
+  notes?: string;
+}
 
 export interface AiAuditRecord {
   id: Identifier;

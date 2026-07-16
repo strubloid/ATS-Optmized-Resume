@@ -40,6 +40,31 @@ test("user can generate, review, block unsupported skills, and hide comments in 
   await page.getByTestId("mode-questionnaire").click();
   await expect(page.getByTestId("evidence-questionnaire")).toBeVisible();
 
+  await page.getByTestId("mode-review").click();
+  const unsupportedCategory = page.getByTestId("improvement-category").filter({ hasText: "Unsupported Requirements" });
+  if (await unsupportedCategory.count()) {
+    await unsupportedCategory.first().click();
+    await expect(page.getByTestId("edit-manually")).toBeVisible();
+    await expect(page.getByTestId("ask-ai-with-context")).toBeVisible();
+    await page.getByTestId("ask-ai-with-context").click();
+    await expect(page.getByTestId("ask-ai-dialog")).toBeVisible();
+    await expect(page.getByTestId("ask-ai-submit")).toBeVisible();
+    await page.getByTestId("ask-ai-dialog").getByRole("button", { name: "Cancel" }).click();
+  }
+
+  await page.getByTestId("mode-review").click();
+  const experienceCategory = page.getByTestId("improvement-category").filter({ hasText: "Enhance Experience" });
+  if (await experienceCategory.count()) {
+    await experienceCategory.first().click();
+    const editButton = page.getByTestId("edit-manually");
+    if (await editButton.count()) {
+      await editButton.first().click();
+      await expect(page.getByTestId("editing-section-").first()).toBeVisible();
+      await expect(page.getByTestId(/^cancel-edit-/).first()).toBeVisible();
+      await page.getByTestId(/^cancel-edit-/).first().click();
+    }
+  }
+
   const cleanDownload = page.waitForEvent("download");
   await page.getByTestId("export-clean-pdf").click();
   expect((await cleanDownload).suggestedFilename()).toContain("pdf");

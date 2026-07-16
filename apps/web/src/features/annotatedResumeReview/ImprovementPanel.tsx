@@ -21,7 +21,9 @@ export function ImprovementPanel({
   onAccept,
   onReject,
   onAskAi,
-  onApplyAiOption
+  onAskAiWithContext,
+  onApplyAiOption,
+  onEditManually
 }: {
   comments: ResumeComment[];
   scoreReport: ScoreReport;
@@ -30,7 +32,9 @@ export function ImprovementPanel({
   onAccept: (comment: ResumeComment) => void;
   onReject: (comment: ResumeComment) => void;
   onAskAi: (comment: ResumeComment) => Promise<AiImprovement[]>;
+  onAskAiWithContext?: (comment: ResumeComment) => void;
   onApplyAiOption: (comment: ResumeComment, improvement: AiImprovement) => Promise<void>;
+  onEditManually: (comment: ResumeComment) => void;
 }) {
   const [showCompleted, setShowCompleted] = useState(false);
   const [showDetails, setShowDetails] = useState(selectedComment?.riskLevel !== "blocked");
@@ -57,7 +61,22 @@ export function ImprovementPanel({
             <div className="button-row suggestion-actions">
               <Button variant="primary" onClick={() => onAccept(selectedComment)} disabled={selectedComment.riskLevel === "blocked" || selectedComment.status === "accepted"} data-testid="accept-suggestion">Apply suggestion</Button>
               <Button variant="secondary" onClick={() => onReject(selectedComment)} disabled={selectedComment.riskLevel === "blocked" || selectedComment.status === "rejected"} data-testid="reject-suggestion">Reject suggestion</Button>
+              {selectedComment.status === "open" ? (
+                <Button variant="quiet" onClick={() => onEditManually(selectedComment)} data-testid="edit-manually">
+                  Edit manually
+                </Button>
+              ) : null}
               {selectedComment.status === "open" && !selectedComment.suggestedReplacement ? <Button variant="quiet" onClick={async () => { setAiLoading(true); setAiImprovements([]); try { const improvements = await onAskAi(selectedComment); setAiImprovements(improvements); setShowDetails(false); } catch (error) { setAiImprovements([{ suggestedReplacement: "", rationale: error instanceof Error ? error.message : "AI improvement failed." }]); } finally { setAiLoading(false); } }}>{aiLoading ? "Creating options..." : "Ask AI to improve"}</Button> : null}
+              {selectedComment.status === "open" && onAskAiWithContext ? (
+                <Button
+                  variant="quiet"
+                  onClick={() => onAskAiWithContext(selectedComment)}
+                  disabled={aiLoading}
+                  data-testid="ask-ai-with-context"
+                >
+                  Ask AI with my context
+                </Button>
+              ) : null}
             </div>
             {aiImprovements.length ? <div className="ai-result" aria-live="polite"><strong>Choose a rewrite to apply</strong><div className="ai-options">{aiImprovements.map((improvement, index) => improvement.suggestedReplacement ? <button className="ai-option" key={improvement.suggestedReplacement} onClick={() => void onApplyAiOption(selectedComment, improvement)}><span>Option {index + 1}</span><b>{improvement.suggestedReplacement}</b><small>{improvement.rationale}</small></button> : <p className="form-error" key="ai-error">{improvement.rationale}</p>)}</div></div> : null}
             <button className="details-toggle" onClick={() => setShowDetails((value) => !value)} aria-expanded={showDetails}>{showDetails ? "Hide review details" : "Show review details"}</button>

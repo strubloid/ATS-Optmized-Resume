@@ -133,6 +133,7 @@ function buildBundle(store: AppStore, userId: string, jobId: string, now: Date |
     evidence,
     scoreReport,
     securityWarnings: jobAnalysis.securityWarnings,
+    parsedResume: { sections: parsedResume.sections.map((section) => ({ id: section.id, heading: section.heading, bullets: section.bullets.map((bullet) => ({ id: bullet.id, text: bullet.text, sectionId: bullet.sectionId })) })) },
     now
   });
 

@@ -14,6 +14,7 @@ interface Question {
 
 function classifyLabel(value: string): string {
   if (value === "partial_transferable") return "Partial transferable";
+  if (value === "strong_transferable") return "Strong transferable";
   if (value === "unsupported") return "Unsupported";
   return value;
 }

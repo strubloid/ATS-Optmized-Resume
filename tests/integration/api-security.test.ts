@@ -269,7 +269,7 @@ describe("API security and abuse coverage", () => {
     const requirements = await request(app).get(`/api/generated/${generated.generatedResume.id}/requirements`).set("Authorization", `Bearer ${token}`).expect(200);
     expect(requirements.body.matched.length).toBeGreaterThan(0);
     expect(requirements.body.unsupported.some((item: { skill?: string }) => item.skill === "Kubernetes")).toBe(true);
-    expect(requirements.body.rulesVersion).toBe("v1");
+    expect(requirements.body.rulesVersion).toBe("v2");
 
     const kubernetes = requirements.body.unsupported.find((item: { skill?: string }) => item.skill === "Kubernetes");
     const evidence = await request(app).get(`/api/generated/${generated.generatedResume.id}/evidence/${kubernetes.id}`).set("Authorization", `Bearer ${token}`).expect(200);
@@ -337,5 +337,36 @@ describe("API security and abuse coverage", () => {
       expect(typeof explanation.summary).toBe("string");
       expect(typeof explanation.reasoning).toBe("string");
     }
+  });
+
+  it("classifies multidisciplinary collaboration as partial_transferable with a paste-ready rewrite from the existing bullet", async () => {
+    const store = createStore();
+    const app = createApiApp(store);
+    const token = await register(app, "responsibility@example.com");
+    const resumeWithTeams = `# Rafael Silva
+rafael@example.com
+
+## Experience
+
+### Vox Technology, João Pessoa - Backend Developer
+- **Brazil**
+- Aug 2011 - Nov 2012
+- Improved internal systems used by client-facing teams and contributed to platform stability, maintainability, and operational efficiency.
+- Built and maintained a document management system that automated more than 200 REGEX-based templates.
+`;
+    await request(app).put("/api/resumes/master").set("Authorization", `Bearer ${token}`).send({ markdown: resumeWithTeams, filename: "resume.md" }).expect(200);
+    const job = await request(app).post("/api/jobs").set("Authorization", `Bearer ${token}`).send({
+      companyName: "Acme",
+      roleTitle: "Senior Backend Engineer",
+      description: "Collaborate with multidisciplinary teams to identify key development patterns and problem-solving strategies in backend engineering. Node.js and PostgreSQL are required."
+    }).expect(201);
+    const generated = await request(app).post(`/api/jobs/${job.body.job.id}/generate`).set("Authorization", `Bearer ${token}`).send({}).expect(201);
+
+    const collaboration = generated.body.comments.find((comment: { jobRequirement?: string; riskLevel: string; suggestedReplacement?: string; currentText?: string }) => /multidisciplinary/i.test(comment.jobRequirement ?? ""));
+    expect(collaboration).toBeDefined();
+    expect(collaboration.riskLevel).not.toBe("blocked");
+    expect(collaboration.suggestedReplacement).toBeDefined();
+    expect(collaboration.suggestedReplacement.toLowerCase()).toMatch(/client-facing/);
+    expect(collaboration.currentText).toMatch(/client-facing teams/);
   });
 });

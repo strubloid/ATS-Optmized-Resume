@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { applyAcceptedSuggestion, revertAcceptedSuggestion, updateCommentStatus } from "../../../../../packages/comments-core/src";
+import { applyAcceptedSuggestion, applyManualSectionEdit, revertAcceptedSuggestion, updateCommentStatus } from "../../../../../packages/comments-core/src";
 import { ApiError, asyncHandler, parseBody } from "../../shared/http";
 import { requireAuth, type AuthenticatedRequest } from "../../shared/authMiddleware";
 import type { AppStore } from "../../shared/store";
@@ -8,6 +8,10 @@ import { recordAiAudit, reevaluateGeneratedResume, requireGeneratedResume } from
 
 const rejectSchema = z.object({ reason: z.string().max(500).optional() }).strict();
 const aiSuggestionSchema = z.object({ suggestedReplacement: z.string().min(1).max(5000), targetBulletId: z.string().min(1).max(200).optional() }).strict();
+const manualEditSchema = z.object({
+  content: z.string().min(1).max(20000),
+  bullets: z.array(z.object({ id: z.string().min(1).max(200), text: z.string().min(1).max(2000) })).max(200).optional()
+}).strict();
 
 export function createCommentRouter(store: AppStore): Router {
   const router = Router();
@@ -139,6 +143,41 @@ export function createCommentRouter(store: AppStore): Router {
     const updatedComments = bundle.comments.map((item) => item.id === comment.id ? updateCommentStatus(item, "resolved") : item);
     store.comments.set(bundle.generatedResume.id, updatedComments);
     response.json({ generatedResume: bundle.generatedResume, comments: updatedComments });
+  }));
+
+  router.patch("/generated/:generatedResumeId/sections/:sectionId", asyncHandler(async (request, response) => {
+    const user = (request as AuthenticatedRequest).user;
+    const bundle = requireGeneratedResume(store, user.id, request.params.generatedResumeId ?? "");
+    const sectionId = request.params.sectionId ?? "";
+    const body = parseBody(manualEditSchema, request.body);
+    const targetSection = bundle.generatedResume.sections.find((section) => section.id === sectionId);
+    if (!targetSection) throw new ApiError(404, "Section not found");
+    if (body.bullets) {
+      const knownBulletIds = new Set(targetSection.bullets.map((bullet) => bullet.id));
+      for (const bullet of body.bullets) {
+        if (!knownBulletIds.has(bullet.id)) throw new ApiError(409, `Unknown bullet id: ${bullet.id}`);
+      }
+    }
+    const updatedGeneratedResume = applyManualSectionEdit(bundle.generatedResume, { sectionId, content: body.content, bullets: body.bullets });
+    const evaluation = reevaluateGeneratedResume(store, user.id, updatedGeneratedResume);
+    store.generatedResumes.set(evaluation.generatedResume.id, evaluation.generatedResume);
+    store.scoreReports.set(evaluation.generatedResume.id, evaluation.scoreReport);
+    recordAiAudit(store, {
+      userId: user.id,
+      resumeVersionId: evaluation.generatedResume.resumeVersionId,
+      jobApplicationId: evaluation.generatedResume.jobApplicationId,
+      generatedResumeId: evaluation.generatedResume.id,
+      commentId: request.params.commentId,
+      action: "manual_edit_section",
+      promptId: "rules-only-manual-edit-section-v1",
+      evidenceIds: body.bullets?.map((bullet) => bullet.id) ?? [],
+      promptSummary: `Manual section edit on section ${sectionId} (${targetSection.heading}).`,
+      outputSummary: `Score ${evaluation.scoreReport.totalScore}/100 after manual edit.`,
+      riskLevel: "low",
+      safeOutcome: true,
+      provider: "rules-only"
+    });
+    response.json({ generatedResume: evaluation.generatedResume, scoreReport: evaluation.scoreReport, comments: bundle.comments });
   }));
 
   return router;

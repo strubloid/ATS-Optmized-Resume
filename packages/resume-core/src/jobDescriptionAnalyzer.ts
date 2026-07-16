@@ -74,6 +74,8 @@ export function analyzeJobDescription(input: JobDescriptionInput): JobDescriptio
 
   return {
     roleTitle: input.roleTitle,
+    rawDescription: input.description,
+    recruiterNotes: input.recruiterNotes,
     requiredSkills: Array.from(requiredSkills),
     preferredSkills: Array.from(preferredSkills),
     responsibilities,
