@@ -1,12 +1,116 @@
 export type Identifier = string;
 
+// ---------------------------------------------------------------------------
+// Structured resume (AI-extracted source of truth for the master resume).
+// Stored alongside the markdown on every `ResumeVersionRecord`. The downstream
+// pipeline (scoring, evidence matching, comment generation) reads from this
+// structure rather than re-parsing the markdown at runtime.
+// ---------------------------------------------------------------------------
+
+export interface StructuredContact {
+  email?: string;
+  phone?: string;
+  linkedin?: string;
+  github?: string;
+  website?: string;
+}
+
+export interface StructuredHeader {
+  name: string;
+  title: string;
+  location?: string;
+  contact: StructuredContact;
+}
+
+export interface StructuredSkillCategory {
+  category: string;
+  items: string[];
+}
+
+export interface StructuredExperienceEntry {
+  company: string;
+  role: string;
+  location?: string;
+  /** ISO-like date string (YYYY or YYYY-MM) or null when unknown. */
+  startDate?: string;
+  endDate?: string;
+  isCurrent: boolean;
+  bullets: string[];
+}
+
+export interface StructuredProjectEntry {
+  name: string;
+  startDate?: string;
+  endDate?: string;
+  isCurrent?: boolean;
+  description: string;
+  bullets: string[];
+  url?: string;
+}
+
+export interface StructuredClientEntry {
+  name: string;
+  url?: string;
+  description?: string;
+}
+
+export interface StructuredEducationEntry {
+  institution: string;
+  degree: string;
+  location?: string;
+  startDate?: string;
+  endDate?: string;
+  notes?: string;
+}
+
+export interface StructuredLanguageEntry {
+  name: string;
+  level: string;
+}
+
+export interface StructuredLeadershipEntry {
+  organization: string;
+  role: string;
+  location?: string;
+  startDate?: string;
+  endDate?: string;
+  isCurrent?: boolean;
+  bullets: string[];
+}
+
+export interface StructuredCertificationEntry {
+  name: string;
+  issuer?: string;
+  date?: string;
+}
+
+export interface StructuredResume {
+  schemaVersion: "1.0";
+  header: StructuredHeader;
+  summary?: string;
+  skills: StructuredSkillCategory[];
+  experience: StructuredExperienceEntry[];
+  projects?: StructuredProjectEntry[];
+  clients?: StructuredClientEntry[];
+  education: StructuredEducationEntry[];
+  languages?: StructuredLanguageEntry[];
+  leadership?: StructuredLeadershipEntry[];
+  certifications?: StructuredCertificationEntry[];
+  links?: string[];
+}
+
 export type ResumeSectionKind =
+  | "title"
   | "contact"
   | "summary"
   | "skills"
   | "experience"
   | "projects"
+  | "clients"
   | "education"
+  | "languages"
+  | "leadership"
+  | "certifications"
   | "links"
   | "other";
 
@@ -61,6 +165,8 @@ export interface JobRequirement {
 
 export interface JobDescriptionAnalysis {
   roleTitle: string;
+  rawDescription: string;
+  recruiterNotes?: string;
   requiredSkills: string[];
   preferredSkills: string[];
   responsibilities: string[];
@@ -121,9 +227,36 @@ export interface EvidenceQuestion {
   relatedSkill?: string;
 }
 
+export interface GeneratedResumeSubEntry {
+  id: Identifier;
+  /** Heading shown above the entry, e.g. "Konvi — Software Engineer" or "BashAliases". */
+  heading: string;
+  /** Optional first-line metadata, e.g. "Dublin, Ireland | Aug 2025 – June 2026". */
+  content: string;
+  bullets: ResumeBullet[];
+  /** Optional location line. */
+  location?: string;
+  /** Optional start date in the source format. */
+  startDate?: string;
+  /** Optional end date in the source format, or "present". */
+  endDate?: string;
+  /** Whether this entry is the candidate's current role. */
+  isCurrent?: boolean;
+  /** Optional URL. */
+  url?: string;
+  /** Provenance defaults to the parent section. */
+  provenance: "resume.md" | "rule-based-rewrite" | "ai-rewrite" | "manual-edit";
+}
+
 export interface GeneratedResumeSection extends ResumeSection {
   provenance: "resume.md" | "rule-based-rewrite" | "ai-rewrite" | "manual-edit";
   sourceSectionId?: Identifier;
+  /**
+   * Sub-entries inside this section. For example, each job in the Experience
+   * section, each project in the Projects section, each school in the Education
+   * section. When present, the UI renders one editable block per sub-entry.
+   */
+  subEntries?: GeneratedResumeSubEntry[];
 }
 
 export interface GeneratedResumeData {
@@ -164,18 +297,23 @@ export interface ResumeComment {
 }
 
 export interface ScoreBreakdown {
-  keywordMatch: number;
-  roleAlignment: number;
-  experienceRelevance: number;
-  skillEvidence: number;
+  parseSuccess: number;
+  keywordCoverage: number;
+  roleTitleAlignment: number;
+  contactInformation: number;
+  sectionStructure: number;
   formattingSafety: number;
   measurableAchievements: number;
+  educationPresence: number;
+  skillsSectionQuality: number;
+  bulletQuality: number;
+  dateConsistency: number;
+  resumeLength: number;
+  keywordConsistency: number;
   storytelling: number;
-  contactCompleteness: number;
-  sectionStructure: number;
-  tenureAndDates: number;
-  actionVerbs: number;
-  knockoutCompliance: number;
+  githubPresence: number;
+  projectImpact: number;
+  openSourceContribution: number;
 }
 
 export interface ScoreCategoryExplanation {
@@ -202,6 +340,9 @@ export interface ScoreReport {
   evidenceByClass: Record<EvidenceClassification, string[]>;
   rulesVersion: string;
   generatedAt: string;
+  patternResults?: PatternResult[];
+  bonusDeduction?: BonusDeductionResult;
+  fairness?: FairnessResult;
 }
 
 export interface OptimizedResumeResult {
@@ -263,4 +404,122 @@ export interface IdempotencyRecord {
   generatedResumeId: Identifier;
   scoreReportId: Identifier;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Error detection pipeline (Phase 1 of docs/error-detection-pipeline.md)
+// All additions are opt-in via BONUS_POINTS_ENABLED and GITHUB_FETCH_ENABLED.
+// The existing 14-category 100-pt scale is preserved when flags are off.
+// ---------------------------------------------------------------------------
+
+export type GitHubProjectType = "open_source" | "self_project";
+
+export interface GitHubProject {
+  name: string;
+  description: string;
+  url: string;
+  stars: number;
+  forks: number;
+  contributors: number;
+  authorCommits: number;
+  totalCommits: number;
+  type: GitHubProjectType;
+  language: string;
+}
+
+export interface GitHubProfile {
+  login: string;
+  name: string | null;
+  bio: string | null;
+  createdAt: string;
+  followers: number;
+  following: number;
+  publicRepos: number;
+}
+
+export interface GitHubEnrichment {
+  username: string | null;
+  profile: GitHubProfile | null;
+  projects: GitHubProject[];
+  totalRepos: number;
+  openSourceCount: number;
+  selfProjectCount: number;
+  topProjects: GitHubProject[];
+  fetchedAt: string;
+  source: "live" | "cache" | "skipped" | "error";
+  error?: string;
+}
+
+export type ErrorDetectionSeverity = "info" | "warning" | "risk" | "blocked";
+
+export type ErrorDetectionChannel = "comment" | "deduction" | "both";
+
+export interface ErrorDetection {
+  id: string;
+  patternId: string;
+  severity: ErrorDetectionSeverity;
+  channel: ErrorDetectionChannel;
+  message: string;
+  rule: string;
+  resumeSectionId?: Identifier;
+  targetBulletId?: Identifier;
+  jobRequirementId?: Identifier;
+  evidence?: string;
+  deductionDelta?: number;
+  skipReason?: "missing-github" | "missing-jd" | "not-applicable";
+}
+
+export type PatternSeverity = ErrorDetectionSeverity;
+
+export interface PatternContext {
+  parsedResume: ParsedResume;
+  generatedResume: GeneratedResumeData;
+  jobAnalysis: JobDescriptionAnalysis;
+  evidence: EvidenceMatchResult;
+  github: GitHubEnrichment | null;
+  breakdown: ScoreBreakdown;
+}
+
+export interface PatternResult {
+  patternId: string;
+  severity: PatternSeverity;
+  fired: boolean;
+  message?: string;
+  resumeSectionId?: Identifier;
+  targetBulletId?: Identifier;
+  deductionDelta?: number;
+  skipReason?: ErrorDetection["skipReason"];
+}
+
+export interface PatternDefinition {
+  id: string;
+  title: string;
+  defaultSeverity: PatternSeverity;
+  channel: ErrorDetectionChannel;
+  detect: (context: PatternContext) => PatternResult;
+  description?: string;
+}
+
+export interface BonusDeductionResult {
+  bonus: number;
+  deductions: number;
+  bonusBreakdown: string[];
+  deductionBreakdown: string[];
+  triggeredRules: string[];
+  fairnessBlocked: boolean;
+  fairnessReason?: string;
+}
+
+export interface FairnessCheck {
+  id: string;
+  name: string;
+  description: string;
+  passed: boolean;
+  reason: string;
+}
+
+export interface FairnessResult {
+  passed: boolean;
+  checks: FairnessCheck[];
+  blockedReason?: string;
 }

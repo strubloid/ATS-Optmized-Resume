@@ -1,9 +1,26 @@
 import type { NextFunction, Request, Response } from "express";
 import { ZodError, type ZodSchema } from "zod";
 
+export interface ApiErrorPayload {
+  code?: string;
+  message: string;
+  path?: string;
+  [key: string]: unknown;
+}
+
 export class ApiError extends Error {
-  constructor(public statusCode: number, message: string) {
-    super(message);
+  readonly statusCode: number;
+  readonly payload: ApiErrorPayload;
+
+  constructor(statusCode: number, messageOrPayload: string | ApiErrorPayload) {
+    if (typeof messageOrPayload === "string") {
+      super(messageOrPayload);
+      this.payload = { message: messageOrPayload };
+    } else {
+      super(messageOrPayload.message);
+      this.payload = messageOrPayload;
+    }
+    this.statusCode = statusCode;
   }
 }
 
@@ -19,7 +36,7 @@ export function parseBody<T>(schema: ZodSchema<T>, body: unknown): T {
 
 export function errorHandler(error: unknown, _request: Request, response: Response, _next: NextFunction) {
   if (error instanceof ApiError) {
-    response.status(error.statusCode).json({ error: error.message });
+    response.status(error.statusCode).json({ error: error.payload.message, code: error.payload.code, path: error.payload.path });
     return;
   }
   if (error instanceof ZodError) {

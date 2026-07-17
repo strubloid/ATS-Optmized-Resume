@@ -1,6 +1,68 @@
+import type { GeneratedResumeData, ResumeComment, ResumeSection, ResumeSectionKind } from "../../../../../packages/shared/src";
 import { useEffect, useState } from "react";
-import type { GeneratedResumeData, ResumeComment } from "../../../../../packages/shared/src";
+import { CANONICAL_HEADING } from "../../../../../packages/resume-core/src";
 import { Button } from "../../shared/ui/Button";
+
+const KIND_LABELS: Record<ResumeSectionKind, string> = {
+  title: "Header",
+  contact: "Contact",
+  summary: "Summary",
+  skills: "Skills",
+  experience: "Experience",
+  projects: "Projects",
+  clients: "Clients",
+  education: "Education",
+  languages: "Languages",
+  leadership: "Leadership",
+  certifications: "Certifications",
+  links: "Links",
+  other: "Other"
+};
+
+function isParagraphBullet(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (trimmed.length > 320) return false;
+  if (/^[A-Z][A-Za-z &/—-]{2,40}$/.test(trimmed) && !/[.!?]$/.test(trimmed)) return false;
+  return /[.!?]$/.test(trimmed) || trimmed.length > 60;
+}
+
+function renderContent(section: ResumeSection) {
+  if (!section.content) return null;
+  if (section.bullets.length) {
+    return (
+      <ul className="resume-bullets" data-testid={`section-bullets-${section.id}`}>
+        {section.bullets.map((bullet) => (
+          <li key={bullet.id} id={bullet.id}>{bullet.text}</li>
+        ))}
+      </ul>
+    );
+  }
+  const lines = section.content.split("\n").map((line) => line.trim()).filter(Boolean);
+  return (
+    <div className="resume-paragraphs" data-testid={`section-paragraphs-${section.id}`}>
+      {lines.map((line, index) => {
+        if (line.startsWith("- ") || line.startsWith("* ") || line.startsWith("• ")) {
+          return <p key={`${section.id}-p-${index}`} className="resume-bullet">{line.replace(/^[-*•]\s+/, "")}</p>;
+        }
+        if (isParagraphBullet(line)) {
+          return <p key={`${section.id}-p-${index}`} className="resume-bullet">{line}</p>;
+        }
+        return <p key={`${section.id}-p-${index}`} className="resume-line">{line}</p>;
+      })}
+    </div>
+  );
+}
+
+function sectionHeadingLabel(section: ResumeSection): string {
+  if (section.heading && section.heading !== "Content" && section.heading !== "Header") return section.heading;
+  return CANONICAL_HEADING[section.kind] ?? KIND_LABELS[section.kind];
+}
+
+function sectionKindBadge(section: ResumeSection): string {
+  if (section.kind === "title" || section.kind === "other") return "";
+  return KIND_LABELS[section.kind];
+}
 
 export function ResumeDocumentPreview({
   generatedResume,
@@ -23,28 +85,33 @@ export function ResumeDocumentPreview({
         const highlighted = selectedComment?.resumeSectionId === section.id;
         const editing = editingSectionId === section.id;
         if (editing) return <SectionEditor key={section.id} section={section} onSave={onSaveSection} onCancel={onCancelEdit} />;
+        const badge = sectionKindBadge(section);
         return (
           <section
             key={section.id}
             id={section.id}
             data-section-id={section.id}
-            className={`resume-section ${highlighted ? "is-highlighted" : ""} ${highlighted && selectedComment.status === "accepted" ? "is-applied" : ""}`}
-            data-testid={highlighted ? "highlighted-section" : undefined}
+            data-section-kind={section.kind}
+            className={`resume-section ${highlighted ? "is-highlighted" : ""} ${highlighted && selectedComment.status === "accepted" ? "is-applied" : ""} kind-${section.kind}`}
+            data-testid={highlighted ? "highlighted-section" : `resume-section-${section.id}`}
           >
             <div className="section-meta">
-              <h2>{section.heading}</h2>
-              <span>{section.provenance}</span>
-              <Button
-                variant="quiet"
-                onClick={() => onEditSection(section.id)}
-                data-testid={`edit-section-${section.id}`}
-              >
-                Edit manually
-              </Button>
+              <div className="section-meta-heading">
+                {badge ? <span className={`section-kind-badge kind-${section.kind}`} data-testid={`section-kind-${section.id}`}>{badge}</span> : null}
+                <h2>{sectionHeadingLabel(section)}</h2>
+              </div>
+              <div className="section-meta-actions">
+                <span className="section-provenance">{section.provenance}</span>
+                <Button
+                  variant="quiet"
+                  onClick={() => onEditSection(section.id)}
+                  data-testid={`edit-section-${section.id}`}
+                >
+                  Edit manually
+                </Button>
+              </div>
             </div>
-            {section.content.split("\n").map((line, index) => (
-              line.startsWith("- ") ? <p className="resume-bullet" key={`${section.id}-${index}`}>{line}</p> : <p key={`${section.id}-${index}`}>{line}</p>
-            ))}
+            {renderContent(section)}
           </section>
         );
       })}
@@ -73,19 +140,23 @@ function SectionEditor({
     <section
       id={section.id}
       data-section-id={section.id}
-      className="resume-section is-editing"
+      data-section-kind={section.kind}
+      className="resume-section is-editing kind-other"
       data-testid={`editing-section-${section.id}`}
     >
       <div className="section-meta">
-        <h2>{section.heading}</h2>
-        <span>manual edit</span>
+        <div className="section-meta-heading">
+          <span className="section-kind-badge">Editing</span>
+          <h2>{sectionHeadingLabel(section)}</h2>
+        </div>
+        <span className="section-provenance">manual edit</span>
       </div>
       <textarea
         className="section-editor"
         value={value}
         onChange={(event) => setValue(event.target.value)}
         rows={Math.max(6, value.split("\n").length + 2)}
-        aria-label={`Edit ${section.heading}`}
+        aria-label={`Edit ${sectionHeadingLabel(section)}`}
         data-testid={`section-editor-${section.id}`}
       />
       {error ? <p className="form-error" role="alert">{error}</p> : null}

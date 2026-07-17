@@ -1,4 +1,4 @@
-import type { AiAuditRecord, CvKnowledgeProfile, GeneratedResumeData, IdempotencyRecord, ResumeComment, ScoreReport } from "../../../../packages/shared/src";
+import type { AiAuditRecord, CvKnowledgeProfile, GeneratedResumeData, IdempotencyRecord, ResumeComment, ScoreReport, StructuredResume } from "../../../../packages/shared/src";
 
 export interface UserRecord {
   id: string;
@@ -21,6 +21,8 @@ export interface ResumeVersionRecord {
   resumeId: string;
   userId: string;
   markdown: string;
+  /** AI-structured representation of the markdown. Populated on save. */
+  structured: StructuredResume | null;
   createdAt: string;
 }
 

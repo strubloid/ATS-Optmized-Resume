@@ -216,7 +216,7 @@ describe("evaluation suite across roles, seniority, languages, and safety", () =
       expect(safety.ok).toBe(true);
       expect(creditSum).toBeLessThanOrEqual(expectedMax);
       expect(result.score.evidenceByClass).toBeDefined();
-      expect(result.score.explanations.keywordMatch.ruleId).toMatch(/scoring\./);
+      expect(result.score.explanations.keywordCoverage.ruleId).toMatch(/scoring\./);
       expect(result.score.totalScore).toBeGreaterThanOrEqual(0);
       expect(result.score.totalScore).toBeLessThanOrEqual(100);
     });
@@ -257,7 +257,7 @@ describe("evaluation suite across roles, seniority, languages, and safety", () =
       now: new Date("2026-07-09T00:00:00Z")
     });
     const score = calculateApplicantTrackingScore({ parsedResume: parsed, jobAnalysis: job, evidence, generatedResume: generated, now: new Date("2026-07-09T00:00:00Z") });
-    const positive = Object.entries(score.breakdown).filter(([key]) => key !== "missingRequirementPenalty").reduce((sum, [, value]) => sum + value, 0);
+    const positive = Object.values(score.breakdown).reduce((sum, value) => sum + value, 0);
     expect(positive).toBeLessThanOrEqual(100);
   });
 

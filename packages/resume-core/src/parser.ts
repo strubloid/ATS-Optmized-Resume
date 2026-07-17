@@ -1,26 +1,21 @@
 import type { ParsedResume, ResumeBullet, ResumeSection, ResumeSectionKind } from "../../shared/src";
+import { kindForHeading } from "./sectionAliases";
+import { detectSectionHeading, isSubEntryHeader } from "./sectionDetector";
 import { KNOWN_TECHNICAL_SKILLS, skillAliases } from "./skillVocabulary";
 import { normalizeText, sanitizeMarkdownInput, slugify, stableHash } from "./textSecurity";
 
-function detectSectionKind(heading: string): ResumeSectionKind {
-  const normalized = normalizeText(heading);
-  if (/contact|profile|header/.test(normalized)) return "contact";
-  if (/summary|overview|objective/.test(normalized)) return "summary";
-  if (/skill|technolog|tool/.test(normalized)) return "skills";
-  if (/experience|employment|work/.test(normalized)) return "experience";
-  if (/project/.test(normalized)) return "projects";
-  if (/education|certification|degree/.test(normalized)) return "education";
-  if (/link|portfolio|github|website/.test(normalized)) return "links";
-  return "other";
+function detectKindFromHeading(heading: string): ResumeSectionKind {
+  return kindForHeading(heading);
 }
 
 function createSection(heading: string, lines: string[]): ResumeSection {
   const content = lines.join("\n").trim();
-  const id = `${detectSectionKind(heading)}_${slugify(heading)}`;
+  const kind = detectKindFromHeading(heading);
+  const id = `${kind}_${slugify(heading)}`;
   const bullets: ResumeBullet[] = lines
-    .filter((line) => /^\s*[-*]\s+/.test(line))
+    .filter((line) => /^\s*[-*•]\s+/.test(line))
     .map((line) => {
-      const text = line.replace(/^\s*[-*]\s+/, "").trim();
+      const text = line.replace(/^\s*[-*•]\s+/, "").trim();
       return {
         id: `bullet_${stableHash(`${id}:${text}`)}`,
         sectionId: id,
@@ -30,10 +25,21 @@ function createSection(heading: string, lines: string[]): ResumeSection {
 
   return {
     id,
-    kind: detectSectionKind(heading),
+    kind,
     heading,
     content,
     bullets
+  };
+}
+
+function buildTitleSection(topLines: string[]): ResumeSection {
+  const content = topLines.join("\n").trim();
+  return {
+    id: "title_top",
+    kind: "title",
+    heading: "Header",
+    content,
+    bullets: []
   };
 }
 
@@ -62,34 +68,99 @@ function extractSkills(markdown: string, sections: ResumeSection[]): string[] {
   return Array.from(skillSet).sort((a, b) => a.localeCompare(b));
 }
 
+function isMarkdownHeading(line: string): boolean {
+  return /^#{1,6}\s+\S/.test(line);
+}
+
+function detectSectionBoundaries(lines: string[]): Array<{ heading: string; kind: ResumeSectionKind; startLine: number; source: ParseSection["detectionSource"] }> {
+  const boundaries: Array<{ heading: string; kind: ResumeSectionKind; startLine: number; source: ParseSection["detectionSource"] }> = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const next = lines[index + 1];
+
+    if (isMarkdownHeading(line)) {
+      const text = line.replace(/^#{1,6}\s+/, "").replace(/\s*#*\s*$/, "").trim();
+      if (text) {
+        boundaries.push({ heading: text, kind: detectKindFromHeading(text), startLine: index, source: "markdown" });
+        continue;
+      }
+    }
+
+    const detected = detectSectionHeading(line, next);
+    if (detected) {
+      boundaries.push({ heading: detected.heading, kind: detected.kind, startLine: index, source: detected.source });
+    }
+  }
+  return boundaries;
+}
+
+export interface ParseSection extends ResumeSection {
+  startLine: number;
+  endLine: number;
+  detectionSource: "markdown" | "caps-line" | "title-alias" | "bold-line" | "underlined" | "title-block";
+}
+
+function groupLinesIntoSections(
+  lines: string[],
+  boundaries: Array<{ heading: string; kind: ResumeSectionKind; startLine: number; source: ParseSection["detectionSource"] }>
+): ParseSection[] {
+  if (!boundaries.length) {
+    return [buildUnstructuredSection(lines, 0, lines.length)];
+  }
+
+  const sections: ParseSection[] = [];
+  const firstStart = boundaries[0]!.startLine;
+  if (firstStart > 0) {
+    sections.push(buildUnstructuredSection(lines.slice(0, firstStart), 0, firstStart));
+  }
+
+  for (let index = 0; index < boundaries.length; index += 1) {
+    const current = boundaries[index]!;
+    const next = boundaries[index + 1];
+    const endLine = next ? next.startLine : lines.length;
+    const sectionLines = lines.slice(current.startLine + 1, endLine);
+    const section = createSection(current.heading, sectionLines);
+    sections.push({ ...section, startLine: current.startLine, endLine, detectionSource: current.source });
+  }
+
+  return sections;
+}
+
+function buildUnstructuredSection(lines: string[], startLine: number, endLine: number): ParseSection {
+  const content = lines.join("\n").trim();
+  const trimmed = lines.map((line) => line.trim()).filter(Boolean);
+  const isTitle = startLine === 0 && trimmed.length <= 6 && /@|linkedin|github|\+\d|http|\d{3}/.test(content);
+  if (isTitle) {
+    return { ...buildTitleSection(trimmed), startLine, endLine, detectionSource: "title-block" };
+  }
+  return {
+    id: `other_${startLine}`,
+    kind: "other",
+    heading: "Content",
+    content,
+    bullets: [],
+    startLine,
+    endLine,
+    detectionSource: "title-block"
+  };
+}
+
 export function parseMarkdownResume(markdown: string): ParsedResume {
   const sanitized = sanitizeMarkdownInput(markdown);
   const lines = sanitized.text.split("\n");
-  const sections: ResumeSection[] = [];
-  let currentHeading = "Contact";
-  let currentLines: string[] = [];
-  let sawHeading = false;
+  const boundaries = detectSectionBoundaries(lines);
+  const parsedSections = groupLinesIntoSections(lines, boundaries);
 
-  for (const line of lines) {
-    const headingMatch = /^(#{1,3})\s+(.+)$/.exec(line);
-    if (headingMatch) {
-      if (currentLines.join("\n").trim() || sawHeading) {
-        sections.push(createSection(currentHeading, currentLines));
-      }
-      currentHeading = headingMatch[2]?.trim() || "Other";
-      currentLines = [];
-      sawHeading = true;
-      continue;
-    }
-    currentLines.push(line);
-  }
-
-  if (currentLines.join("\n").trim() || !sections.length) {
-    sections.push(createSection(currentHeading, currentLines));
-  }
+  const sections: ResumeSection[] = parsedSections.map((section) => ({
+    id: section.id,
+    kind: section.kind,
+    heading: section.heading,
+    content: section.content,
+    bullets: section.bullets
+  }));
 
   const contactLines = sections
-    .filter((section) => section.kind === "contact")
+    .filter((section) => section.kind === "contact" || section.kind === "title")
     .flatMap((section) => section.content.split("\n").filter(Boolean));
 
   return {
@@ -101,3 +172,5 @@ export function parseMarkdownResume(markdown: string): ParsedResume {
     warnings: sanitized.warnings
   };
 }
+
+export { isSubEntryHeader };

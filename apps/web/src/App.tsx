@@ -21,6 +21,10 @@ export function App() {
   const [error, setError] = useState("");
   const api = new ApiClient(() => token);
 
+  function handleMasterSaved(resume: { markdown: string }) {
+    setMasterResume(resume.markdown);
+  }
+
   function selectBundle(nextBundle: GeneratedBundle) {
     localStorage.setItem("curriculum-active-generated-resume", nextBundle.generatedResume.id);
     setBundle(nextBundle);
@@ -88,7 +92,7 @@ export function App() {
         <main className="content-area">
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           {page === "dashboard" ? <DashboardPage hasResume={Boolean(masterResume)} bundle={bundle} /> : null}
-          {page === "resume" ? <MasterResumeEditor api={api} markdown={masterResume} onSaved={setMasterResume} /> : null}
+          {page === "resume" ? <MasterResumeEditor api={api} markdown={masterResume} onSaved={handleMasterSaved} /> : null}
           {page === "jobs" ? <JobApplicationForm api={api} onGenerated={(generated) => { setError(""); selectBundle(generated); setPage("review"); }} /> : null}
           {page === "review" ? (
             bundle ? <AnnotatedResumeReviewPage api={api} bundle={bundle} sourceMarkdown={masterResume} onBundleChange={selectBundle} /> : <Panel><h2>Better CV</h2><p>Create a Better CV from a job application first.</p></Panel>

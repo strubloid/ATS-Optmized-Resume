@@ -1,4 +1,4 @@
-import { normalizeText } from "../../resume-core/src";
+import { buildAliasRegex, normalizeText } from "../../resume-core/src";
 
 export const STRONG_ACTION_VERBS = new Set([
   "achieved", "analyzed", "architected", "authored", "automated", "awarded", "boosted", "built", "centralized",
@@ -130,15 +130,9 @@ export function detectContactInfo(parsedResumeMarkdown: string): {
 
 export function hasStandardSection(sections: Array<{ kind: string; heading: string }>, kind: string): boolean {
   if (sections.some((section) => section.kind === kind)) return true;
-  const canonicalHeadings: Record<string, RegExp> = {
-    summary: /^(professional\s+summary|summary|profile|about)$/i,
-    skills: /^(skills|technical\s+skills|core\s+competencies|technologies|key\s+skills)$/i,
-    experience: /^(work\s+experience|experience|professional\s+experience|employment(?:\s+history)?|career\s+history)$/i,
-    education: /^(education|academic(?:\s+background)?|qualifications)$/i,
-    projects: /^(projects|side\s+projects|selected\s+projects|key\s+projects)$/i
-  };
-  const pattern = canonicalHeadings[kind];
-  if (!pattern) return false;
+  const recognisedKinds = ["summary", "skills", "experience", "education", "projects", "clients", "languages", "leadership", "certifications", "links", "title", "contact"] as const;
+  if (!recognisedKinds.includes(kind as typeof recognisedKinds[number])) return false;
+  const pattern = buildAliasRegex(kind as typeof recognisedKinds[number]);
   return sections.some((section) => pattern.test(section.heading.replace(/^#+\s*/, "").trim()));
 }
 
@@ -149,7 +143,7 @@ export function detectExperienceTenureAndGaps(experienceSections: Array<{ conten
   recentRangeWithin12Months: boolean;
   consistentDateFormat: boolean;
 } {
-  const dateRegex = /(\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\b\d{4}\b|\b\d{1,2}[\/\-\.]\d{4}\b|\b\d{4}-\d{2}\b)\s*[\u2013\u2014\-]\s*(\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\bpresent\b|\bcurrent\b|\bnow\b|\b\d{4}\b|\b\d{1,2}[\/\-\.]\d{4}\b|\b\d{4}-\d{2}\b)/i;
+  const dateRegex = /(\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\b\d{4}\b|\b\d{1,2}[\/\-\.]\d{4}\b|\b\d{4}-\d{2}\b)\s*[\u2013\u2014\-]?\s*(?:to|through|–|—|-)\s*(\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\bpresent\b|\bcurrent\b|\bnow\b|\b\d{4}\b|\b\d{1,2}[\/\-\.]\d{4}\b|\b\d{4}-\d{2}\b)/i;
   const ranges: DateRange[] = [];
   for (const section of experienceSections) {
     const haystack = `${section.content}\n${section.bullets.map((b) => b.text).join("\n")}`;
@@ -213,4 +207,115 @@ export function detectHighestEducationFromResume(experienceSections: Array<{ con
   if (/\b(associate|aa|as|diploma)\b/.test(haystack)) return "associate";
   if (/\b(high\s+school|secondary|ged)\b/.test(haystack)) return "highschool";
   return "unknown";
+}
+
+export function hasEducationSection(sections: Array<{ kind: string; heading: string }>): boolean {
+  return hasStandardSection(sections, "education");
+}
+
+export function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+export function detectResumeLength(markdown: string, totalExperienceMonths: number): {
+  wordCount: number;
+  appropriateLength: boolean;
+  tooShort: boolean;
+  tooLong: boolean;
+  note: string;
+} {
+  const wordCount = countWords(markdown);
+  const years = totalExperienceMonths / 12;
+  let minWords: number;
+  let maxWords: number;
+  if (years < 2) {
+    minWords = 200;
+    maxWords = 500;
+  } else if (years < 5) {
+    minWords = 350;
+    maxWords = 700;
+  } else if (years < 10) {
+    minWords = 500;
+    maxWords = 900;
+  } else {
+    minWords = 600;
+    maxWords = 1100;
+  }
+  const tooShort = wordCount < minWords;
+  const tooLong = wordCount > maxWords;
+  const appropriateLength = !tooShort && !tooLong;
+  let note: string;
+  if (tooShort) {
+    note = `Resume has ${wordCount} words; expected ${minWords}–${maxWords} for ~${years.toFixed(0)} years of experience. Consider expanding experience details.`;
+  } else if (tooLong) {
+    note = `Resume has ${wordCount} words; expected ${minWords}–${maxWords} for ~${years.toFixed(0)} years of experience. Consider trimming to improve keyword density.`;
+  } else {
+    note = `Resume has ${wordCount} words, appropriate for ~${years.toFixed(0)} years of experience.`;
+  }
+  return { wordCount, appropriateLength, tooShort, tooLong, note };
+}
+
+export function detectKeywordConsistency(
+  skillsSectionText: string,
+  experienceText: string,
+  summaryText: string,
+  requiredSkills: string[]
+): {
+  totalRequired: number;
+  inSkillsSection: number;
+  inExperience: number;
+  inSummary: number;
+  inMultipleSections: number;
+  note: string;
+} {
+  const normalisedSkills = normalizeText(skillsSectionText);
+  const normalisedExperience = normalizeText(experienceText);
+  const normalisedSummary = normalizeText(summaryText);
+  const normalisedRequired = requiredSkills.map((skill) => normalizeText(skill));
+  let inSkillsSection = 0;
+  let inExperience = 0;
+  let inSummary = 0;
+  let inMultipleSections = 0;
+  for (const skill of normalisedRequired) {
+    const inSkills = normalisedSkills.includes(skill);
+    const inExp = normalisedExperience.includes(skill);
+    const inSum = normalisedSummary.includes(skill);
+    if (inSkills) inSkillsSection += 1;
+    if (inExp) inExperience += 1;
+    if (inSum) inSummary += 1;
+    const sectionCount = (inSkills ? 1 : 0) + (inExp ? 1 : 0) + (inSum ? 1 : 0);
+    if (sectionCount >= 2) inMultipleSections += 1;
+  }
+  const totalRequired = normalisedRequired.length;
+  const note = totalRequired > 0
+    ? `${inMultipleSections} of ${totalRequired} required skills appear in multiple sections (skills + experience + summary). Skills section: ${inSkillsSection}, experience: ${inExperience}, summary: ${inSummary}.`
+    : "No explicit required skills to check for cross-section consistency.";
+  return { totalRequired, inSkillsSection, inExperience, inSummary, inMultipleSections, note };
+}
+
+export function detectSkillsSectionQuality(
+  sections: Array<{ kind: string; heading: string; content: string }>,
+  requiredSkills: string[]
+): {
+  hasSection: boolean;
+  skillCount: number;
+  matchingJD: number;
+  note: string;
+} {
+  const skillsSections = sections.filter((section) => section.kind === "skills");
+  const skillsAlias = buildAliasRegex("skills");
+  const skillsSection = skillsSections.find((section) => skillsAlias.test(section.heading.replace(/^#+\s*/, "").trim())) ?? skillsSections[0];
+  if (!skillsSection) {
+    return { hasSection: false, skillCount: 0, matchingJD: 0, note: "No dedicated skills section detected." };
+  }
+  const content = normalizeText(skillsSection.content);
+  const listedSkills = content.split(/[,\n•\-–]+/).map((s) => s.trim()).filter(Boolean);
+  const normalisedRequired = requiredSkills.map((skill) => normalizeText(skill));
+  const matchingJD = normalisedRequired.filter((skill) => content.includes(skill)).length;
+  return {
+    hasSection: true,
+    skillCount: listedSkills.length,
+    matchingJD,
+    note: `Skills section found with ${listedSkills.length} items; ${matchingJD} of ${normalisedRequired.length} required JD skills are listed.`
+  };
 }

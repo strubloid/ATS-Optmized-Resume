@@ -1,7 +1,8 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApiApp } from "../../apps/api/src/app";
 import { createStore } from "../../apps/api/src/shared/store";
+import { installRulesOnlyStructuredProvider } from "./structuredProviderTestHelpers";
 
 const resumeMarkdown = `# Rafael Silva
 rafael@example.com
@@ -43,6 +44,15 @@ async function createGenerated(app: ReturnType<typeof createApiApp>, token: stri
 }
 
 describe("API security and abuse coverage", () => {
+  let disposeProvider: (() => void) | undefined;
+  beforeEach(() => {
+    disposeProvider = installRulesOnlyStructuredProvider();
+  });
+  afterEach(() => {
+    disposeProvider?.();
+    disposeProvider = undefined;
+  });
+
   it("supports the happy path while preserving master resume", async () => {
     const store = createStore();
     const app = createApiApp(store);
@@ -157,9 +167,10 @@ describe("API security and abuse coverage", () => {
     const applied = await request(app).post(`/api/generated/${generated.generatedResume.id}/comments/${suggestion.id}/accept`).set("Authorization", `Bearer ${token}`).send().expect(200);
     const reopened = await request(app).post(`/api/jobs/${generated.generatedResume.jobApplicationId}/generate`).set("Authorization", `Bearer ${token}`).send().expect(201);
 
-    expect(reopened.body.generatedResume.id).toBe(generated.generatedResume.id);
-    expect(reopened.body.generatedResume.markdown).toBe(applied.body.generatedResume.markdown);
-    expect(reopened.body.comments.find((comment: { id: string }) => comment.id === suggestion.id).status).toBe("accepted");
+    expect(reopened.body.generatedResume.id).not.toBe(generated.generatedResume.id);
+    expect(reopened.body.generatedResume.id).toMatch(/^generated_/);
+    expect(reopened.body.scoreReport.rulesVersion).toBe("v4");
+    expect(reopened.body.scoreReport.patternResults?.length).toBe(20);
   });
 
   it("retains an AI-created replacement when the annotated review is reopened", async () => {
@@ -269,7 +280,7 @@ describe("API security and abuse coverage", () => {
     const requirements = await request(app).get(`/api/generated/${generated.generatedResume.id}/requirements`).set("Authorization", `Bearer ${token}`).expect(200);
     expect(requirements.body.matched.length).toBeGreaterThan(0);
     expect(requirements.body.unsupported.some((item: { skill?: string }) => item.skill === "Kubernetes")).toBe(true);
-    expect(requirements.body.rulesVersion).toBe("v2");
+    expect(requirements.body.rulesVersion).toBe("v4");
 
     const kubernetes = requirements.body.unsupported.find((item: { skill?: string }) => item.skill === "Kubernetes");
     const evidence = await request(app).get(`/api/generated/${generated.generatedResume.id}/evidence/${kubernetes.id}`).set("Authorization", `Bearer ${token}`).expect(200);
@@ -368,5 +379,30 @@ rafael@example.com
     expect(collaboration.suggestedReplacement).toBeDefined();
     expect(collaboration.suggestedReplacement.toLowerCase()).toMatch(/client-facing/);
     expect(collaboration.currentText).toMatch(/client-facing teams/);
+  });
+
+  it("regenerates a fresh v4 score report and runs all 20 patterns every time 'Make it better' is clicked", async () => {
+    const store = createStore();
+    const app = createApiApp(store);
+    const token = await register(app, "regen@example.com");
+    await request(app).put("/api/resumes/master").set("Authorization", `Bearer ${token}`).send({ markdown: resumeMarkdown, filename: "resume.md" }).expect(200);
+    const job = await request(app).post("/api/jobs").set("Authorization", `Bearer ${token}`).send({
+      companyName: "Acme",
+      roleTitle: "Backend Engineer",
+      description: "Node.js, TypeScript, PostgreSQL required."
+    }).expect(201);
+
+    const first = await request(app).post(`/api/jobs/${job.body.job.id}/generate`).set("Authorization", `Bearer ${token}`).send().expect(201);
+    const second = await request(app).post(`/api/jobs/${job.body.job.id}/generate`).set("Authorization", `Bearer ${token}`).send().expect(201);
+    const third = await request(app).post(`/api/jobs/${job.body.job.id}/generate`).set("Authorization", `Bearer ${token}`).send().expect(201);
+
+    expect(first.body.generatedResume.id).not.toBe(second.body.generatedResume.id);
+    expect(second.body.generatedResume.id).not.toBe(third.body.generatedResume.id);
+    expect(first.body.scoreReport.rulesVersion).toBe("v4");
+    expect(second.body.scoreReport.rulesVersion).toBe("v4");
+    expect(third.body.scoreReport.rulesVersion).toBe("v4");
+    expect(third.body.scoreReport.patternResults).toHaveLength(20);
+    const firedPatternIds = third.body.scoreReport.patternResults.filter((result: { fired: boolean }) => result.fired).map((result: { patternId: string }) => result.patternId);
+    expect(firedPatternIds.length).toBeGreaterThan(0);
   });
 });

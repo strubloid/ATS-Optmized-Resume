@@ -1,7 +1,8 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApiApp } from "../../apps/api/src/app";
 import { createStore } from "../../apps/api/src/shared/store";
+import { installRulesOnlyStructuredProvider } from "./structuredProviderTestHelpers";
 
 const resumeMarkdown = `# Rafael Silva
 rafael@example.com
@@ -32,6 +33,15 @@ async function register(app: ReturnType<typeof createApiApp>, username: string) 
   const response = await request(app).post("/api/auth/register").send({ nickname: "Test User", email: username, confirmEmail: username, password: "secure-pass-123", confirmPassword: "secure-pass-123" }).expect(201);
   return response.body.token as string;
 }
+
+let disposeProvider: (() => void) | undefined;
+beforeEach(() => {
+  disposeProvider = installRulesOnlyStructuredProvider();
+});
+afterEach(() => {
+  disposeProvider?.();
+  disposeProvider = undefined;
+});
 
 async function createGenerated(app: ReturnType<typeof createApiApp>, token: string) {
   await request(app).put("/api/resumes/master").set("Authorization", `Bearer ${token}`).send({ markdown: resumeMarkdown, filename: "resume.md" }).expect(200);

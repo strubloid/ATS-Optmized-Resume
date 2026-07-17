@@ -2,6 +2,7 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApiApp } from "../../apps/api/src/app";
 import { createStore } from "../../apps/api/src/shared/store";
+import { installRulesOnlyStructuredProvider } from "./structuredProviderTestHelpers";
 
 const resumeMarkdown = `# Rafael Silva
 rafael@example.com
@@ -28,6 +29,7 @@ Full-stack engineer with React, TypeScript, Node.js, REST APIs, PostgreSQL, AWS,
 `;
 
 const originalFetch = globalThis.fetch;
+let disposeProvider: (() => void) | undefined;
 
 async function register(app: ReturnType<typeof createApiApp>, username: string) {
   const response = await request(app).post("/api/auth/register").send({ nickname: "Test User", email: username, confirmEmail: username, password: "secure-pass-123", confirmPassword: "secure-pass-123" }).expect(201);
@@ -40,10 +42,13 @@ async function setupApiKey(app: ReturnType<typeof createApiApp>, token: string) 
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  disposeProvider = installRulesOnlyStructuredProvider();
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  disposeProvider?.();
+  disposeProvider = undefined;
 });
 
 describe("/api/settings/ai/analyze fallback behaviour", () => {

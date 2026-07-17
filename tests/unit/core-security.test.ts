@@ -81,9 +81,9 @@ describe("core safety and truthful optimization", () => {
     const score = calculateApplicantTrackingScore({ parsedResume: parsed, jobAnalysis: job, evidence, generatedResume });
     expect(score.label).toBe("Estimated Applicant Tracking System compatibility score");
     expect(JSON.stringify(score)).not.toMatch(/Guaranteed ATS score/i);
-    expect(score.breakdown.knockoutCompliance).toBeGreaterThanOrEqual(0);
-    expect(score.explanations.keywordMatch.summary.toLowerCase()).toContain("requirement");
-    expect(score.explanations.skillEvidence.reasoning.toLowerCase()).toContain("direct");
+    expect(score.breakdown.educationPresence).toBeGreaterThanOrEqual(0);
+    expect(score.explanations.keywordCoverage.summary.toLowerCase()).toContain("requirement");
+    expect(score.explanations.keywordCoverage.reasoning.toLowerCase()).toMatch(/direct|equivalent|transferable|unsupported/);
     expect(score.missingRequirements).toBeDefined();
     expect(score.evidenceByClass).toBeDefined();
   });

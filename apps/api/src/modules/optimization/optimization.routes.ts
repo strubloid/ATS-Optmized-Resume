@@ -10,8 +10,8 @@ import {
   requireGeneratedResume
 } from "./optimization.service";
 import { buildInterviewQuestionsForRequirement } from "../../../../../packages/resume-core/src";
-import { analyzeJobDescription, matchEvidence, parseMarkdownResume } from "../../../../../packages/resume-core/src";
-import { requireMasterResume } from "../resumes/resume.service";
+import { analyzeJobDescription, matchEvidence, parseMarkdownResume, structuredResumeToParsed } from "../../../../../packages/resume-core/src";
+import { getMasterResume, requireMasterResume } from "../resumes/resume.service";
 
 const generateSchema = z.object({}).strict();
 
@@ -75,9 +75,12 @@ export function createOptimizationRouter(store: AppStore): Router {
     const comment = bundle.comments.find((item) => item.id === (request.params.commentId ?? ""));
     if (!comment) throw new Error("Comment not found");
     const job = store.jobs.get(bundle.generatedResume.jobApplicationId);
-    const resume = requireMasterResume(store, user.id);
+    const resume = getMasterResume(store, user.id);
+    if (!resume) throw new Error("Master resume not found");
     if (!job) throw new Error("Job application not found");
-    const parsedResume = parseMarkdownResume(resume.markdown);
+    const parsedResume = resume.structured
+      ? structuredResumeToParsed(resume.structured, resume.markdown).parsed
+      : parseMarkdownResume(resume.markdown);
     const jobAnalysis = analyzeJobDescription({
       companyName: job.companyName,
       roleTitle: job.roleTitle,

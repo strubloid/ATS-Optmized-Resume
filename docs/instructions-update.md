@@ -809,21 +809,27 @@ Needs improvement:
 
 ## 11. Scoring engine requirements
 
-Create `/docs/scoring-engine.md`.
+Create `/docs/scoring-engine.md` and `/docs/ATS-system.md`.
 
 The score must not be fake. It can be approximate, but it must explain itself.
 
-The score should be based on weighted rules:
+The score is based on **14 independent weighted categories** (v3) that sum to 100. Each category measures a genuinely distinct ATS check.
 
 ```txt
-Keyword match: 25%
-Role/title alignment: 10%
-Experience relevance: 20%
-Skill evidence strength: 15%
-Applicant Tracking System formatting safety: 10%
-Measurable achievements: 10%
-Seniority/storytelling clarity: 5%
-Missing critical requirements penalty: 5%
+Parse success:              12%   Can the ATS extract name, email, phone, employer, dates cleanly?
+Keyword coverage:           16%   What percentage of required/preferred JD skills have evidence-backed matches?
+Role title alignment:       10%   Does the target job title appear in the generated resume?
+Contact information:         5%   Is the contact block complete and parser-friendly?
+Section structure:           6%   Are standard section headings used (Summary, Skills, Experience, Education)?
+Formatting safety:           7%   Are parser-risky patterns avoided (tables, images, scripts)?
+Measurable achievements:     8%   Do bullets contain measurable impact (numbers, percentages, scale)?
+Education presence:          4%   Is the education section present and does it meet JD requirements?
+Skills section quality:      7%   Does a dedicated skills section exist with JD-relevant skills?
+Bullet quality:              6%   Do bullets start with strong action verbs?
+Date consistency:            5%   Are date formats consistent, with recent employment and no large gaps?
+Resume length:               4%   Is the resume length appropriate for the experience level?
+Keyword consistency:         5%   Do required skills appear across multiple sections (skills + experience + summary)?
+Storytelling:                5%   Does the resume have core sections and a focused summary (35-85 words)?
 ```
 
 The system must show the scoring breakdown.
@@ -834,14 +840,20 @@ Example:
 {
   "totalScore": 93,
   "breakdown": {
-    "keywordMatch": 24,
-    "roleAlignment": 9,
-    "experienceRelevance": 19,
-    "skillEvidence": 14,
-    "formattingSafety": 10,
-    "measurableAchievements": 8,
-    "storytelling": 5,
-    "missingRequirementPenalty": -1
+    "parseSuccess": 12,
+    "keywordCoverage": 15,
+    "roleTitleAlignment": 10,
+    "contactInformation": 5,
+    "sectionStructure": 6,
+    "formattingSafety": 7,
+    "measurableAchievements": 7,
+    "educationPresence": 4,
+    "skillsSectionQuality": 6,
+    "bulletQuality": 6,
+    "dateConsistency": 5,
+    "resumeLength": 4,
+    "keywordConsistency": 5,
+    "storytelling": 5
   }
 }
 ```

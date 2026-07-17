@@ -3,7 +3,7 @@ import { z } from "zod";
 import { asyncHandler, parseBody } from "../../shared/http";
 import { requireAuth, type AuthenticatedRequest } from "../../shared/authMiddleware";
 import type { AppStore } from "../../shared/store";
-import { buildCvKnowledgeProfile, parseMarkdownResume } from "../../../../../packages/resume-core/src";
+import { buildCvKnowledgeProfile, parseMarkdownResume, structuredResumeToParsed } from "../../../../../packages/resume-core/src";
 import { recordAiAudit } from "../optimization/optimization.service";
 import { buildContextRewrites } from "../../../../../packages/ai-core/src";
 
@@ -133,7 +133,10 @@ export function createSettingsRouter(store: AppStore): Router {
             const resumeVersion = resume ? store.resumeVersions.get(resume.currentVersionId) : undefined;
             const cvProfile = resume && resumeVersion
               ? store.cvProfiles.get(resume.currentVersionId) ?? (() => {
-                const profile = buildCvKnowledgeProfile(parseMarkdownResume(resumeVersion.markdown), resumeVersion.id);
+                const parsed = resumeVersion.structured
+                  ? structuredResumeToParsed(resumeVersion.structured, resumeVersion.markdown).parsed
+                  : parseMarkdownResume(resumeVersion.markdown);
+                const profile = buildCvKnowledgeProfile(parsed, resumeVersion.id);
                 store.cvProfiles.set(resumeVersion.id, profile);
                 return profile;
               })()

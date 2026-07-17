@@ -1,4 +1,11 @@
-import type { EvidenceMatchResult, GeneratedResumeData, GeneratedResumeSection, JobDescriptionAnalysis, ParsedResume } from "../../shared/src";
+import type {
+  EvidenceMatchResult,
+  GeneratedResumeData,
+  GeneratedResumeSection,
+  GeneratedResumeSubEntry,
+  JobDescriptionAnalysis,
+  ParsedResume
+} from "../../shared/src";
 import { normalizeText, stableHash } from "./textSecurity";
 
 export interface ResumeOptimizationInput {
@@ -9,6 +16,12 @@ export interface ResumeOptimizationInput {
   parsedResume: ParsedResume;
   jobAnalysis: JobDescriptionAnalysis;
   evidence: EvidenceMatchResult;
+  /**
+   * Sub-entries per section id, produced by the structured-data adapter.
+   * When present, each sub-entry is rendered as a separate editable block
+   * in the CV preview and passed through to the generated resume unchanged.
+   */
+  subEntries?: Record<string, GeneratedResumeSubEntry[]>;
   now?: Date;
 }
 
@@ -22,19 +35,49 @@ function optimizeSummary(parsedResume: ParsedResume, jobAnalysis: JobDescription
   return `${jobAnalysis.roleTitle} candidate with resume-backed experience in ${supportedSkills}. ${original}`;
 }
 
-function renderSection(section: GeneratedResumeSection): string {
-  const heading = section.heading === "Contact" ? "# Contact" : `## ${section.heading}`;
-  return [heading, section.content.trim()].filter(Boolean).join("\n\n");
+function reorderSkillsBullets(bullets: Array<{ id: string; sectionId: string; text: string }>, matchedSkills: string[]): Array<{ id: string; sectionId: string; text: string }> {
+  if (!matchedSkills.length) return bullets;
+  const matched: Array<{ id: string; sectionId: string; text: string }> = [];
+  const remaining: Array<{ id: string; sectionId: string; text: string }> = [];
+  for (const bullet of bullets) {
+    if (matchedSkills.some((skill) => normalizeText(bullet.text) === normalizeText(skill))) matched.push(bullet);
+    else remaining.push(bullet);
+  }
+  return [...matched, ...remaining];
 }
 
-function reorderSkillsContent(content: string, matchedSkills: string[]): string {
-  const pieces = content
-    .split(/[\n,|;]+/)
-    .map((piece) => piece.replace(/^\s*[-*]\s+/, "").trim())
-    .filter(Boolean);
-  const matched = pieces.filter((piece) => matchedSkills.some((skill) => normalizeText(piece) === normalizeText(skill)));
-  const remaining = pieces.filter((piece) => !matched.includes(piece));
-  return [...matched, ...remaining].map((skill) => `- ${skill}`).join("\n");
+function renderSubEntryAsMarkdown(entry: GeneratedResumeSubEntry): string {
+  const lines: string[] = [];
+  lines.push(`### ${entry.heading}`);
+  if (entry.location || entry.startDate || entry.endDate) {
+    const meta: string[] = [];
+    if (entry.location) meta.push(entry.location);
+    if (entry.startDate || entry.endDate) {
+      const range = [entry.startDate, entry.endDate ?? (entry.isCurrent ? "present" : undefined)].filter(Boolean).join(" \u2013 ");
+      if (range) meta.push(range);
+    }
+    if (meta.length) lines.push(meta.join(" | "));
+  } else if (entry.content) {
+    lines.push(entry.content);
+  }
+  for (const bullet of entry.bullets) {
+    lines.push(`- ${bullet.text}`);
+  }
+  if (entry.url) lines.push(`[${entry.heading}](${entry.url})`);
+  return lines.join("\n");
+}
+
+function renderSectionAsMarkdown(section: GeneratedResumeSection): string {
+  const heading = section.kind === "title" || section.kind === "contact" ? `# ${section.heading}` : `## ${section.heading}`;
+  const parts: string[] = [heading];
+  if (section.subEntries?.length) {
+    for (const entry of section.subEntries) {
+      parts.push(renderSubEntryAsMarkdown(entry));
+    }
+  } else if (section.content) {
+    parts.push(section.content.trim());
+  }
+  return parts.join("\n\n");
 }
 
 export function optimizeResumeWithRules(input: ResumeOptimizationInput): GeneratedResumeData {
@@ -45,6 +88,7 @@ export function optimizeResumeWithRules(input: ResumeOptimizationInput): Generat
 
   const sections = input.parsedResume.sections.map((section) => {
     let content = section.content;
+    let bullets = section.bullets;
     let provenance: GeneratedResumeSection["provenance"] = "resume.md";
 
     if (section.kind === "summary" && optimizedSummary) {
@@ -52,20 +96,25 @@ export function optimizeResumeWithRules(input: ResumeOptimizationInput): Generat
       provenance = "rule-based-rewrite";
     }
 
-    if (section.kind === "skills" && matchedSkills.length) {
-      content = reorderSkillsContent(section.content, matchedSkills);
+    if (section.kind === "skills" && matchedSkills.length && bullets.length) {
+      bullets = reorderSkillsBullets(bullets, matchedSkills);
+      content = bullets.map((bullet) => `- ${bullet.text}`).join("\n");
       provenance = "rule-based-rewrite";
     }
+
+    const subEntries = input.subEntries?.[section.id];
 
     return {
       ...section,
       content,
+      bullets,
       provenance,
-      sourceSectionId: section.id
+      sourceSectionId: section.id,
+      subEntries: subEntries?.length ? subEntries : undefined
     } satisfies GeneratedResumeSection;
   });
 
-  const markdown = sections.map(renderSection).join("\n\n");
+  const markdown = sections.map(renderSectionAsMarkdown).join("\n\n");
   return {
     id: `generated_${stableHash(`${input.userId}:${input.jobApplicationId}:${input.now?.toISOString() ?? Date.now()}`)}`,
     userId: input.userId,

@@ -1,4 +1,4 @@
-import type { GeneratedResumeData, InterviewQuestion, ResumeComment, ScoreReport, UserContextPayload } from "../../../../packages/shared/src";
+import type { GeneratedResumeData, InterviewQuestion, ResumeComment, ScoreReport, StructuredResume, UserContextPayload } from "../../../../packages/shared/src";
 
 export interface AuthResponse {
   token: string;
@@ -9,6 +9,13 @@ export interface GeneratedBundle {
   generatedResume: GeneratedResumeData;
   scoreReport: ScoreReport;
   comments: ResumeComment[];
+}
+
+export interface MasterResumeResponse {
+  id: string;
+  markdown: string;
+  currentVersionId: string;
+  structured: StructuredResume | null;
 }
 
 export class ApiClient {
@@ -49,14 +56,22 @@ export class ApiClient {
   }
 
   getMasterResume() {
-    return this.request<{ resume: null | { id: string; markdown: string; currentVersionId: string } }>("/api/resumes/master");
+    return this.request<{ resume: null | MasterResumeResponse }>("/api/resumes/master");
   }
 
   saveMasterResume(markdown: string) {
-    return this.request<{ resume: { id: string; markdown: string; currentVersionId: string } }>("/api/resumes/master", {
+    return this.request<{ resume: MasterResumeResponse }>("/api/resumes/master", {
       method: "PUT",
       body: JSON.stringify({ markdown, filename: "resume.md" })
     });
+  }
+
+  getStructuredResume() {
+    return this.request<{ structured: StructuredResume | null; resumeVersionId: string | null }>("/api/resumes/master/structured");
+  }
+
+  restructureMasterResume() {
+    return this.request<{ resume: MasterResumeResponse }>("/api/resumes/master/restructure", { method: "POST" });
   }
 
   createCompany(name: string) {

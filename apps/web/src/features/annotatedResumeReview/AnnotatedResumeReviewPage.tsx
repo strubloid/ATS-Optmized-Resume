@@ -239,7 +239,7 @@ export function AnnotatedResumeReviewPage({ api, bundle, sourceMarkdown, onBundl
         <EvidenceQuestionnaire api={api} generatedResumeId={bundle.generatedResume.id} />
       ) : (
         <div className={`annotated-layout ${mode === "clean" ? "is-clean" : ""}`} data-testid="annotated-layout">
-          {mode !== "clean" ? <CommentMargin comments={bundle.comments} selectedCommentId={selectedCommentId} onSelect={selectComment} /> : null}
+          {mode !== "clean" ? <CommentMargin generatedResume={bundle.generatedResume} comments={bundle.comments} selectedCommentId={selectedCommentId} onSelect={selectComment} /> : null}
           <ResumeDocumentPreview
             generatedResume={bundle.generatedResume}
             selectedComment={mode === "clean" ? undefined : selectedComment}

@@ -9,12 +9,12 @@ import type {
   OptimizedResumeResult
 } from "../../../../../packages/shared/src";
 import { generateResumeComments } from "../../../../../packages/comments-core/src";
-import { analyzeJobDescription, buildEvidenceQuestionnaire, matchEvidence, optimizeResumeWithRules, parseMarkdownResume } from "../../../../../packages/resume-core/src";
+import { analyzeJobDescription, buildEvidenceQuestionnaire, matchEvidence, optimizeResumeWithRules, parseMarkdownResume, structuredResumeToParsed } from "../../../../../packages/resume-core/src";
 import { calculateApplicantTrackingScore } from "../../../../../packages/scoring-core/src";
 import { ApiError } from "../../shared/http";
 import { createId } from "../../shared/ids";
 import type { AppStore } from "../../shared/store";
-import { requireMasterResume } from "../resumes/resume.service";
+import { getMasterResume, requireMasterResume } from "../resumes/resume.service";
 
 const IDEMPOTENCY_WINDOW_MS = 1000 * 60 * 30;
 
@@ -30,16 +30,6 @@ function buildEvidenceResult(generatedResume: GeneratedResumeData, parsedResume:
     scoreReport: calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume: refreshedGeneratedResume, now: new Date() }),
     evidence
   };
-}
-
-function findExistingGeneratedResume(store: AppStore, userId: string, jobId: string): GeneratedResumeData | undefined {
-  let latest: GeneratedResumeData | undefined;
-  for (const generatedResume of store.generatedResumes.values()) {
-    if (generatedResume.userId === userId && generatedResume.jobApplicationId === jobId) {
-      if (!latest || generatedResume.createdAt > latest.createdAt) latest = generatedResume;
-    }
-  }
-  return latest;
 }
 
 function writeAuditRecord(
@@ -108,7 +98,9 @@ function buildBundle(store: AppStore, userId: string, jobId: string, now: Date |
   }
 
   const resume = requireMasterResume(store, userId);
-  const parsedResume = parseMarkdownResume(resume.markdown);
+  const { parsed: parsedResume, subEntries } = resume.structured
+    ? structuredResumeToParsed(resume.structured, resume.markdown)
+    : { parsed: parseMarkdownResume(resume.markdown), subEntries: undefined };
   const jobAnalysis = analyzeJobDescription({
     companyName: job.companyName,
     roleTitle: job.roleTitle,
@@ -125,6 +117,7 @@ function buildBundle(store: AppStore, userId: string, jobId: string, now: Date |
     parsedResume,
     jobAnalysis,
     evidence,
+    subEntries,
     now
   });
   const scoreReport = calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume, now });
@@ -165,10 +158,6 @@ function buildBundle(store: AppStore, userId: string, jobId: string, now: Date |
 }
 
 export function generateOptimizedResume(store: AppStore, userId: string, jobId: string, options: GenerateOptions = {}): OptimizedResumeResult {
-  const existing = findExistingGeneratedResume(store, userId, jobId);
-  if (existing && !options.idempotencyKey) {
-    return requireGeneratedResume(store, userId, existing.id);
-  }
   return buildBundle(store, userId, jobId, options.now, options);
 }
 
@@ -183,9 +172,12 @@ export function requireGeneratedResume(store: AppStore, userId: string, generate
 
 export function reevaluateGeneratedResume(store: AppStore, userId: string, generatedResume: OptimizedResumeResult["generatedResume"], now: Date | undefined = new Date()) {
   const job = store.jobs.get(generatedResume.jobApplicationId);
-  const resume = requireMasterResume(store, userId);
+  const resume = getMasterResume(store, userId);
+  if (!resume) throw new ApiError(404, "Master resume not found");
   if (!job) throw new ApiError(404, "Job application not found");
-  const parsedResume = parseMarkdownResume(resume.markdown);
+  const parsedResume = resume.structured
+    ? structuredResumeToParsed(resume.structured, resume.markdown).parsed
+    : parseMarkdownResume(resume.markdown);
   const jobAnalysis = analyzeJobDescription({ companyName: job.companyName, roleTitle: job.roleTitle, location: job.location, description: job.description, recruiterNotes: job.recruiterNotes });
   const evidence = matchEvidence(parsedResume, jobAnalysis);
   return buildEvidenceResult(generatedResume, parsedResume, jobAnalysis, evidence);
@@ -198,9 +190,12 @@ export function recalculateGeneratedResumeScore(store: AppStore, userId: string,
 export function getEvidenceQuestionnaire(store: AppStore, userId: string, generatedResumeId: string) {
   const bundle = requireGeneratedResume(store, userId, generatedResumeId);
   const job = store.jobs.get(bundle.generatedResume.jobApplicationId);
-  const resume = requireMasterResume(store, userId);
+  const resume = getMasterResume(store, userId);
+  if (!resume) throw new ApiError(404, "Master resume not found");
   if (!job) throw new ApiError(404, "Job application not found");
-  const parsedResume = parseMarkdownResume(resume.markdown);
+  const parsedResume = resume.structured
+    ? structuredResumeToParsed(resume.structured, resume.markdown).parsed
+    : parseMarkdownResume(resume.markdown);
   const jobAnalysis = analyzeJobDescription({
     companyName: job.companyName,
     roleTitle: job.roleTitle,

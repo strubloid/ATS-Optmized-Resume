@@ -14,7 +14,7 @@ const generatedResume: GeneratedResumeData = {
   ],
   unsupportedRequirements: [],
   createdAt: "2026-07-09T00:00:00Z",
-  rulesVersion: "v1"
+  rulesVersion: "v4"
 };
 
 const comment: ResumeComment = {
@@ -36,24 +36,42 @@ const scoreReport: ScoreReport = {
   label: "Estimated Applicant Tracking System compatibility score",
   totalScore: 90,
   breakdown: {
-    keywordMatch: 24,
-    roleAlignment: 9,
-    experienceRelevance: 19,
-    skillEvidence: 14,
-    formattingSafety: 10,
+    parseSuccess: 12,
+    keywordCoverage: 14,
+    roleTitleAlignment: 8,
+    contactInformation: 5,
+    sectionStructure: 6,
+    formattingSafety: 7,
     measurableAchievements: 8,
+    educationPresence: 4,
+    skillsSectionQuality: 6,
+    bulletQuality: 6,
+    dateConsistency: 5,
+    resumeLength: 4,
+    keywordConsistency: 5,
     storytelling: 5,
-    missingRequirementPenalty: -1
+    githubPresence: 0,
+    projectImpact: 0,
+    openSourceContribution: 0
   },
   explanations: {
-    keywordMatch: { ruleId: "scoring.keyword.requirement-coverage", summary: "", reasoning: "" },
-    roleAlignment: { ruleId: "scoring.role.target-language", summary: "", reasoning: "" },
-    experienceRelevance: { ruleId: "scoring.experience.relevance", summary: "", reasoning: "" },
-    skillEvidence: { ruleId: "scoring.evidence.classification-credit", summary: "", reasoning: "" },
+    parseSuccess: { ruleId: "scoring.parse.success", summary: "", reasoning: "" },
+    keywordCoverage: { ruleId: "scoring.keyword.requirement-coverage", summary: "", reasoning: "" },
+    roleTitleAlignment: { ruleId: "scoring.role.target-title", summary: "", reasoning: "" },
+    contactInformation: { ruleId: "scoring.contact.completeness", summary: "", reasoning: "" },
+    sectionStructure: { ruleId: "scoring.structure.section-standards", summary: "", reasoning: "" },
     formattingSafety: { ruleId: "scoring.format.parser-safety", summary: "", reasoning: "" },
-    measurableAchievements: { ruleId: "scoring.evidence.measurable-outcomes", summary: "", reasoning: "" },
-    storytelling: { ruleId: "scoring.storytelling.structure", summary: "", reasoning: "" },
-    missingRequirementPenalty: { ruleId: "scoring.policy.no-double-penalty", summary: "", reasoning: "" }
+    measurableAchievements: { ruleId: "scoring.bullets.quantification", summary: "", reasoning: "" },
+    educationPresence: { ruleId: "scoring.education.section-and-level", summary: "", reasoning: "" },
+    skillsSectionQuality: { ruleId: "scoring.skills.section-quality", summary: "", reasoning: "" },
+    bulletQuality: { ruleId: "scoring.bullets.action-verbs", summary: "", reasoning: "" },
+    dateConsistency: { ruleId: "scoring.tenure.date-format-and-recency", summary: "", reasoning: "" },
+    resumeLength: { ruleId: "scoring.length.appropriateness", summary: "", reasoning: "" },
+    keywordConsistency: { ruleId: "scoring.keywords.cross-section", summary: "", reasoning: "" },
+    storytelling: { ruleId: "scoring.narrative.structure", summary: "", reasoning: "" },
+    githubPresence: { ruleId: "scoring.github.profile-presence", summary: "", reasoning: "" },
+    projectImpact: { ruleId: "scoring.project.impact-signals", summary: "", reasoning: "" },
+    openSourceContribution: { ruleId: "scoring.opensource.external-contributions", summary: "", reasoning: "" }
   } satisfies ScoreExplanationMap,
   strongPoints: [],
   needsImprovement: [],
@@ -68,7 +86,7 @@ const scoreReport: ScoreReport = {
     partial_transferable: [],
     unsupported: []
   },
-  rulesVersion: "v1",
+  rulesVersion: "v4",
   generatedAt: "2026-07-09T00:00:00Z"
 };
 

@@ -6,5 +6,8 @@ export * from "./jobDescriptionAnalyzer";
 export * from "./parser";
 export * from "./resumeOptimizer";
 export * from "./responsibilityRewriter";
+export * from "./sectionAliases";
+export * from "./sectionDetector";
+export * from "./structuredAdapter";
 export * from "./skillVocabulary";
 export * from "./textSecurity";

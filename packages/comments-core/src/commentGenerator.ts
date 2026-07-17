@@ -1,4 +1,4 @@
-import type { EvidenceMatchResult, GeneratedResumeData, ResumeComment, ScoreReport } from "../../shared/src";
+import type { EvidenceMatchResult, GeneratedResumeData, PatternResult, ResumeComment, ScoreReport } from "../../shared/src";
 import { rewriteResponsibilityRequirement, stableHash } from "../../resume-core/src";
 
 export interface CommentGeneratorInput {
@@ -8,6 +8,43 @@ export interface CommentGeneratorInput {
   securityWarnings: string[];
   now?: Date;
   parsedResume?: { sections: Array<{ id: string; heading: string; bullets: Array<{ id: string; text: string; sectionId: string }> }> };
+}
+
+const PATTERN_TITLES: Record<string, { title: string; category: string }> = {
+  "p01-fake-open-source": { title: "Open-source claim not supported by GitHub", category: "Unsupported Requirements" },
+  "p02-tutorial-padding": { title: "All projects look like tutorials", category: "Project Quality" },
+  "p03-missing-links": { title: "Project missing a link", category: "Project Quality" },
+  "p04-experience-inconsistency": { title: "Years of experience vs. GitHub account age", category: "Consistency" },
+  "p05-keyword-stuffing": { title: "Keyword stuffing detected", category: "ATS Spam Signals" },
+  "p06-hidden-text": { title: "Hidden or white-font text", category: "ATS Spam Signals" },
+  "p07-unspelled-acronyms": { title: "Acronym not spelled out", category: "Polish" },
+  "p08-overformatting": { title: "Parser-risky formatting", category: "Formatting Safety" },
+  "p09-undemonstrated-skills": { title: "Skills listed but never demonstrated", category: "Skills" },
+  "p10-title-inflation": { title: "Title inflation without scope evidence", category: "Consistency" },
+  "p11-employment-gap": { title: "Unexplained employment gap", category: "Consistency" },
+  "p12-date-format": { title: "Inconsistent date formats", category: "Polish" },
+  "p13-job-hopping": { title: "Job-hopping pattern", category: "Consistency" },
+  "p14-stale-skills": { title: "Stale skills block", category: "Skills" },
+  "p15-bullet-repetition": { title: "Near-duplicate bullets", category: "Polish" },
+  "p16-missing-present": { title: "Missing present / current indicator", category: "Consistency" },
+  "p17-bullet-count": { title: "Bullet count outside healthy range", category: "Polish" },
+  "p18-section-heading": { title: "Non-standard section heading", category: "Section Structure" },
+  "p19-measurable-density": { title: "Measurable-achievement density too low", category: "Bullets" },
+  "p20-education-role-inversion": { title: "Education / role seniority inversion", category: "Consistency" }
+};
+
+function severityToRiskLevel(severity: PatternResult["severity"]): ResumeComment["riskLevel"] {
+  if (severity === "blocked") return "blocked";
+  if (severity === "risk") return "high";
+  if (severity === "warning") return "medium";
+  return "low";
+}
+
+function severityToResumeSeverity(severity: PatternResult["severity"]): ResumeComment["severity"] {
+  if (severity === "blocked") return "blocked";
+  if (severity === "risk") return "risk";
+  if (severity === "warning") return "warning";
+  return "info";
 }
 
 function createComment(input: Omit<ResumeComment, "id" | "createdAt" | "status"> & { seed: string; now?: Date }): ResumeComment {
@@ -44,6 +81,14 @@ function findSourceBullet(input: CommentGeneratorInput, sourceSectionId: string 
   return section.bullets[0];
 }
 
+function pickFallbackSection(sections: GeneratedResumeData["sections"], preferred: Array<GeneratedResumeData["sections"][number]["kind"]>) {
+  for (const kind of preferred) {
+    const match = sections.find((section) => section.kind === kind && section.content.trim());
+    if (match) return match;
+  }
+  return sections.find((section) => section.content.trim()) ?? sections[0];
+}
+
 export function generateResumeComments(input: CommentGeneratorInput): ResumeComment[] {
   const comments: ResumeComment[] = [];
   const now = input.now;
@@ -51,6 +96,8 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
   const skills = input.generatedResume.sections.find((section) => section.kind === "skills" && section.content.trim())
     ?? input.generatedResume.sections.find((section) => section.kind === "other" && section.content.trim() && /skills|technical/i.test(section.heading));
   const experience = input.generatedResume.sections.find((section) => section.kind === "experience");
+  const title = input.generatedResume.sections.find((section) => section.kind === "title");
+  const firstContent = pickFallbackSection(input.generatedResume.sections, ["title", "contact", "summary", "skills", "experience", "projects"]);
 
   if (summary && summary.content.split(/\s+/).filter(Boolean).length > 85) {
     comments.push(createComment({
@@ -114,7 +161,9 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
   }
 
   for (const missing of input.evidence.unsupportedRequirements) {
-    const targetSection = skills ?? summary ?? input.generatedResume.sections[0];
+    const targetSection = missing.requirement.skill
+      ? pickFallbackSection(input.generatedResume.sections, ["skills", "summary", "experience"])
+      : pickFallbackSection(input.generatedResume.sections, ["experience", "summary", "skills"]);
     if (!targetSection) continue;
     const missingSkill = missing.requirement.skill ?? missing.requirement.text;
     if (missing.relatedEvidence) {
@@ -122,7 +171,7 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
       const relatedBullet = findSourceBullet(input, missing.relatedEvidence.sourceSectionId, missing.relatedEvidence.sourceBulletId);
       comments.push(createComment({
         seed: `${input.generatedResume.id}:${missing.requirement.id}:related-evidence`,
-        resumeSectionId: targetSection.id,
+        resumeSectionId: relatedBullet ? relatedBullet.sectionId : targetSection.id,
         targetBulletId: relatedBullet?.id,
         targetTextHash: relatedBullet ? stableHash(relatedBullet.text) : stableHash(targetSection.content),
         severity: rewrite ? "suggestion" : "improvement",
@@ -163,15 +212,17 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
   }
 
   for (const partial of input.evidence.partialTransferableRequirements) {
-    const targetSection = skills ?? summary ?? input.generatedResume.sections[0];
-    if (!targetSection) continue;
     const partialSkill = partial.requirement.skill ?? partial.requirement.text;
+    const isResponsibility = !partial.requirement.skill;
+    const targetSection = partial.sourceSectionId
+      ? input.generatedResume.sections.find((section) => section.id === partial.sourceSectionId) ?? pickFallbackSection(input.generatedResume.sections, isResponsibility ? ["experience", "summary"] : ["skills", "experience"])
+      : pickFallbackSection(input.generatedResume.sections, isResponsibility ? ["experience", "summary"] : ["skills", "experience"]);
+    if (!targetSection) continue;
     const rewrite = input.parsedResume ? rewriteResponsibilityRequirement(toParsedResume(input.parsedResume), partial.requirement) : undefined;
     const relatedBullet = partial.sourceSectionId ? findSourceBullet(input, partial.sourceSectionId, partial.sourceBulletId) : undefined;
-    const isResponsibility = !partial.requirement.skill;
     comments.push(createComment({
       seed: `${input.generatedResume.id}:${partial.requirement.id}:partial`,
-      resumeSectionId: targetSection.id,
+      resumeSectionId: relatedBullet ? relatedBullet.sectionId : targetSection.id,
       targetBulletId: relatedBullet?.id,
       targetTextHash: relatedBullet ? stableHash(relatedBullet.text) : stableHash(targetSection.content),
       severity: rewrite || isResponsibility ? "suggestion" : "improvement",
@@ -193,7 +244,7 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
   }
 
   for (const warning of input.securityWarnings) {
-    const targetSection = input.generatedResume.sections[0];
+    const targetSection = firstContent;
     if (!targetSection) continue;
     comments.push(createComment({
       seed: `${input.generatedResume.id}:security:${warning}`,
@@ -211,7 +262,7 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
   }
 
   if (input.scoreReport.totalScore >= 80) {
-    const targetSection = input.generatedResume.sections[0];
+    const targetSection = title ?? firstContent;
     if (targetSection) {
       comments.push(createComment({
         seed: `${input.generatedResume.id}:export-ready`,
@@ -224,6 +275,38 @@ export function generateResumeComments(input: CommentGeneratorInput): ResumeComm
         category: "Export Readiness",
         estimatedScoreImpact: 0,
         riskLevel: "low",
+        now
+      }));
+    }
+  }
+
+  if (input.scoreReport.patternResults) {
+    for (const pattern of input.scoreReport.patternResults) {
+      if (!pattern.fired) continue;
+      if (pattern.skipReason) continue;
+      const meta = PATTERN_TITLES[pattern.patternId] ?? { title: pattern.patternId, category: "Pattern Detection" };
+      const fallbackSection = pickFallbackSection(input.generatedResume.sections, ["experience", "summary", "skills", "projects"]);
+      if (!fallbackSection) continue;
+      const targetSection = pattern.resumeSectionId
+        ? input.generatedResume.sections.find((section) => section.id === pattern.resumeSectionId) ?? fallbackSection
+        : fallbackSection;
+      const targetBullet = pattern.targetBulletId
+        ? targetSection.bullets.find((bullet) => bullet.id === pattern.targetBulletId)
+        : undefined;
+      comments.push(createComment({
+        seed: `${input.generatedResume.id}:pattern:${pattern.patternId}`,
+        resumeSectionId: targetSection.id,
+        targetBulletId: targetBullet?.id,
+        targetTextHash: targetBullet ? stableHash(targetBullet.text) : stableHash(targetSection.content),
+        severity: severityToResumeSeverity(pattern.severity),
+        title: meta.title,
+        message: pattern.message ?? "Pattern flagged by the detection pipeline.",
+        source: "scoring-rule",
+        category: meta.category,
+        currentText: targetBullet?.text ?? targetSection.content,
+        evidence: `Pattern ${pattern.patternId} (severity: ${pattern.severity})`,
+        estimatedScoreImpact: pattern.deductionDelta ?? 0,
+        riskLevel: severityToRiskLevel(pattern.severity),
         now
       }));
     }

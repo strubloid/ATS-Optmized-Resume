@@ -55,16 +55,16 @@ function buildInputs(resumeMarkdown: string, jobMarkdown: string) {
     resumeVersionId: parsedResume.sections[0]?.id ?? "v1",
     jobApplicationId: "job_1",
     markdown: resumeMarkdown,
-    sections: parsedResume.sections as ResumeSection[],
+    sections: parsedResume.sections.map((section) => ({ ...section, provenance: "resume.md" as const })),
     unsupportedRequirements: evidence.unsupportedRequirements,
     createdAt: "2026-07-09T00:00:00.000Z",
-    rulesVersion: "v2"
+    rulesVersion: "v4"
   };
   return { parsedResume, jobAnalysis, evidence, generatedResume };
 }
 
-describe("scoring engine v2 (12 categories)", () => {
-  it("returns a score of 100 when every category can earn full credit", () => {
+describe("scoring engine v3 (14 categories)", () => {
+  it("returns a high score when every category can earn full credit", () => {
     const { parsedResume, jobAnalysis, evidence, generatedResume } = buildInputs(
       fullResumeMarkdown,
       "Senior Full Stack Engineer with 5+ years of experience. Required: Node.js, TypeScript, React, PostgreSQL, AWS, Docker, GitHub Actions, Puppeteer, Jest. Bachelor degree in Computer Science required."
@@ -72,19 +72,23 @@ describe("scoring engine v2 (12 categories)", () => {
     const score = calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume });
     expect(score.totalScore).toBeGreaterThanOrEqual(80);
     expect(score.totalScore).toBeLessThanOrEqual(100);
-    expect(score.breakdown.contactCompleteness).toBe(6);
+    expect(score.breakdown.contactInformation).toBeGreaterThanOrEqual(4);
     expect(score.breakdown.sectionStructure).toBeGreaterThanOrEqual(5);
-    expect(score.breakdown.tenureAndDates).toBe(5);
-    expect(score.breakdown.actionVerbs).toBe(5);
-    expect(score.breakdown.knockoutCompliance).toBeGreaterThanOrEqual(5);
-    expect(score.breakdown.measurableAchievements).toBeGreaterThanOrEqual(6);
+    expect(score.breakdown.dateConsistency).toBeGreaterThanOrEqual(3);
+    expect(score.breakdown.bulletQuality).toBeGreaterThanOrEqual(4);
+    expect(score.breakdown.educationPresence).toBeGreaterThanOrEqual(3);
+    expect(score.breakdown.measurableAchievements).toBeGreaterThanOrEqual(5);
+    expect(score.breakdown.parseSuccess).toBeGreaterThanOrEqual(8);
+    expect(score.breakdown.storytelling).toBeGreaterThanOrEqual(3);
+    expect(score.breakdown.keywordCoverage).toBeGreaterThanOrEqual(12);
+    expect(score.breakdown.skillsSectionQuality).toBeGreaterThanOrEqual(5);
   });
 
-  it("penalises a missing email or phone in contact completeness", () => {
+  it("penalises a missing email or phone in contact information", () => {
     const trimmed = fullResumeMarkdown.replace(/\+351 912 345 678 \| /, "");
     const { parsedResume, jobAnalysis, evidence, generatedResume } = buildInputs(trimmed, "Senior Full Stack Engineer with Node.js, TypeScript, React, PostgreSQL, AWS, Docker, GitHub Actions, Puppeteer, Jest.");
     const score = calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume });
-    expect(score.breakdown.contactCompleteness).toBeLessThan(6);
+    expect(score.breakdown.contactInformation).toBeLessThan(5);
   });
 
   it("penalises non-standard section headings and rewards a complete standard structure", () => {
@@ -104,7 +108,7 @@ describe("scoring engine v2 (12 categories)", () => {
       .replace("2014 – 2017", "2014 to 2017");
     const { parsedResume, jobAnalysis, evidence, generatedResume } = buildInputs(messyDates, "Senior Full Stack Engineer with Node.js, TypeScript, React, PostgreSQL, AWS, Docker, GitHub Actions, Puppeteer, Jest.");
     const score = calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume });
-    expect(score.breakdown.tenureAndDates).toBeLessThan(5);
+    expect(score.breakdown.dateConsistency).toBeLessThan(5);
   });
 
   it("rewards bullets that start with strong action verbs and penalises weak openers", () => {
@@ -115,28 +119,36 @@ describe("scoring engine v2 (12 categories)", () => {
       .replace("Improved CI/CD on GitHub Actions", "Worked on CI/CD on GitHub Actions");
     const { parsedResume, jobAnalysis, evidence, generatedResume } = buildInputs(weakVerbs, "Senior Full Stack Engineer with Node.js, TypeScript, React, PostgreSQL, AWS, Docker, GitHub Actions, Puppeteer, Jest.");
     const score = calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume });
-    expect(score.breakdown.actionVerbs).toBeLessThan(5);
+    expect(score.breakdown.bulletQuality).toBeLessThan(5);
   });
 
-  it("reduces knockout compliance when the JD asks for a PhD but the resume has a Bachelor", () => {
+  it("reduces education presence when the JD asks for a PhD but the resume has a Bachelor", () => {
     const { parsedResume, jobAnalysis, evidence, generatedResume } = buildInputs(
       fullResumeMarkdown,
       "Senior Full Stack Engineer with Node.js, TypeScript, React, PostgreSQL, AWS, Docker, GitHub Actions, Puppeteer, Jest. PhD in Computer Science required. 8+ years of experience required."
     );
     const score = calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume });
-    expect(score.breakdown.knockoutCompliance).toBeLessThan(6);
+    expect(score.breakdown.educationPresence).toBeLessThan(4);
   });
 
   it("reports strong points and needs improvement that reference the new categories", () => {
     const { parsedResume, jobAnalysis, evidence, generatedResume } = buildInputs(emptyResume, "Backend Engineer");
     const score = calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume });
     const joined = [...score.strongPoints, ...score.needsImprovement].join(" | ").toLowerCase();
-    expect(joined).toMatch(/contact|section|action|tenure|knockout|measurable/);
+    expect(joined).toMatch(/contact|section|verb|date|education|skill|keyword|parse|measurable/);
   });
 
-  it("rulesVersion is v2 in every score report", () => {
+  it("rulesVersion is v4 in every score report", () => {
     const { parsedResume, jobAnalysis, evidence, generatedResume } = buildInputs(fullResumeMarkdown, "Senior Full Stack Engineer with Node.js, TypeScript, React.");
     const score = calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume });
-    expect(score.rulesVersion).toBe("v2");
+    expect(score.rulesVersion).toBe("v4");
+  });
+
+  it("keeps 100-pt total when BONUS_POINTS_ENABLED is not set (default off)", () => {
+    const { parsedResume, jobAnalysis, evidence, generatedResume } = buildInputs(fullResumeMarkdown, "Senior Full Stack Engineer with Node.js, TypeScript, React.");
+    const score = calculateApplicantTrackingScore({ parsedResume, jobAnalysis, evidence, generatedResume });
+    const sum = Object.values(score.breakdown).reduce((s, v) => s + v, 0);
+    expect(score.totalScore).toBeLessThanOrEqual(100);
+    expect(sum).toBe(score.totalScore);
   });
 });
